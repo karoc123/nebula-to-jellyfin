@@ -1,60 +1,68 @@
-name: Release container
+name: Release
+
 on:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
-      tag:
-        description: 'Release tag to create (vMAJOR.MINOR.PATCH; must match pyproject.toml)'
+      version:
+        description: 'Version to release (MAJOR.MINOR.PATCH, for example 0.2.0)'
         required: true
         type: string
+
 permissions:
-  contents: read
+  contents: write
+  packages: write
+
 concurrency:
-  group: release-container
+  group: release
   cancel-in-progress: false
+
 jobs:
-  checks:
-    if: ${{ github.event_name == 'workflow_dispatch' || !github.event.release.prerelease }}
-    uses: ./.github/workflows/ci.yml
-  publish:
-    needs: checks
+  release:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      packages: write
     env:
-      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: main
           fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
       - uses: astral-sh/setup-uv@v6
         with:
           version: '0.13.1'
           python-version: '3.13'
-      - name: Validate stable release version
+
+      - name: Prepare release version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          python - <<'PY'
-          import os, re, tomllib
-          tag = os.environ['RELEASE_TAG']
-          assert re.fullmatch(r'v\d+\.\d+\.\d+', tag), 'Expected vMAJOR.MINOR.PATCH'
-          with open('pyproject.toml', 'rb') as handle:
-              assert tomllib.load(handle)['project']['version'] == tag[1:]
-          PY
-      - name: Create release tag at the tested commit
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        run: |
-          if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
-            if [ "$(git rev-parse "$RELEASE_TAG^{commit}")" != "$GITHUB_SHA" ]; then
-              echo "Release tag already points to a different commit" >&2
-              exit 1
-            fi
-          else
-            git tag "$RELEASE_TAG" "$GITHUB_SHA"
-            git push origin "refs/tags/$RELEASE_TAG"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          version="$(python tools/set_version.py "$INPUT_VERSION")"
+          uv lock
+          if ! git diff --quiet; then
+            git add pyproject.toml uv.lock docker-compose.yml README.md
+            git commit -m "Release v$version"
           fi
+          git pull --rebase origin main
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Run checks
+        run: |
+          uv sync --locked
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run pytest -q
+
+      - name: Push release commit and tag
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git tag -a "$TAG" -m "Release $TAG"
+          git push --atomic origin main "$TAG"
+
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
@@ -68,13 +76,10 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ghcr.io/karoc123/nebula-to-jellyfin:${{ env.RELEASE_TAG }}
+            ghcr.io/karoc123/nebula-to-jellyfin:${{ steps.version.outputs.tag }}
             ghcr.io/karoc123/nebula-to-jellyfin:latest
-      - name: Publish GitHub Release
-        if: ${{ github.event_name == 'workflow_dispatch' }}
+
+      - name: Publish GitHub release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if ! gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
-            gh release create "$RELEASE_TAG" --verify-tag --generate-notes
-          fi
+          TAG: ${{ steps.version.outputs.tag }}
+        run: gh release create "$TAG" --verify-tag --generate-notes --title "$TAG"
