@@ -55,6 +55,8 @@ def test_normalize_urls():
         '{"subtitleslangs":[1]}',
         '{"retries":-1}',
         '{"format":""}',
+        '{"merge_output_format":"avi"}',
+        '{"merge_output_format":"mp4/avi"}',
     ],
 )
 def test_reject_options(options):
@@ -67,6 +69,11 @@ def test_valid_options():
         "subtitleslangs": ["en", "de"],
         "ratelimit": 100,
     }
+
+
+@pytest.mark.parametrize("formats", ["mp4", "mkv", "mov", "webm", "mp4/mkv"])
+def test_merge_output_formats(formats):
+    assert validate_options({"merge_output_format": formats}) == {"merge_output_format": formats}
 
 
 @pytest.mark.parametrize(

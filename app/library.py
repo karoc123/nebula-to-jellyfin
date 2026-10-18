@@ -11,10 +11,9 @@ import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
 
-from .config import Config
+from .config import VIDEO_EXTENSIONS, Config
 
 log = logging.getLogger(__name__)
-VIDEO_EXTENSIONS = {".mp4", ".mkv", ".webm", ".mov"}
 
 
 def sanitize(value: str, maxbytes: int = 100) -> str:
@@ -109,6 +108,8 @@ def publish(config: Config, video: dict, channel: dict, work: Path) -> Path:
     receipt = json.loads((work / "completed.json").read_text())
     source = work / receipt["media"]
     target = config.library_dir / video["target_path"]
+    if target.exists() and (source.exists() or target.stat().st_size != receipt["size"]):
+        raise RuntimeError("Published target conflicts with completed media; refusing replacement")
     target.parent.mkdir(parents=True, exist_ok=True)
     stem = target.with_suffix("")
     show = config.library_dir / channel["directory"]
@@ -156,12 +157,7 @@ def publish(config: Config, video: dict, channel: dict, work: Path) -> Path:
         metadata = config.data_dir / "metadata"
         metadata.mkdir(exist_ok=True)
         atomic_bytes(metadata / f"{video['id']}.json", info.read_bytes())
-    if target.exists():
-        if target.stat().st_size != receipt["size"]:
-            raise RuntimeError(
-                "Published target differs from completion receipt; refusing replacement"
-            )
-    else:
+    if not target.exists():
         if not source.exists() or source.stat().st_size != receipt["size"]:
             raise RuntimeError("Completed media is missing or changed")
         # Same filesystem, atomic publication. A crash now leaves the receipt for recovery.

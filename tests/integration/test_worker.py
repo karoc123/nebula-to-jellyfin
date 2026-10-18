@@ -123,6 +123,8 @@ def test_source_absent_is_warning_but_disk_error_is_failure(
     work.mkdir()
     (work / "video.mp4").write_bytes(b"completed media")
     library.prepare_receipt(work)
+    # Remove the earlier publication so this attempt reaches the failing sidecar write.
+    (config.library_dir / db.video(video["id"])["target_path"]).unlink()
     monkeypatch.setattr(
         "app.library.write_nfo",
         lambda *a, **k: (_ for _ in ()).throw(PermissionError("Storage write denied")),
@@ -132,22 +134,27 @@ def test_source_absent_is_warning_but_disk_error_is_failure(
     assert "Storage write denied" in db.video(video["id"])["error"]
 
 
-def test_conflicting_target_is_not_replaced(config, db, worker, video, download, monkeypatch):
+@pytest.mark.parametrize("content", [b"existing file with a different size", b"different media"])
+def test_conflicting_target_is_not_replaced(
+    config, db, worker, video, download, monkeypatch, content
+):
     original = library.publish
 
     def conflict(cfg, record, channel, work):
         target = cfg.library_dir / record["target_path"]
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(b"existing file with a different size")
+        target.write_bytes(content)
+        target.with_suffix(".nfo").write_text("Existing metadata")
         return original(cfg, record, channel, work)
 
     monkeypatch.setattr("app.library.publish", conflict)
     worker.step()
     record = db.video(video["id"])
     assert record["status"] == "error"
-    assert (
-        config.library_dir / record["target_path"]
-    ).read_bytes() == b"existing file with a different size"
+    target = config.library_dir / record["target_path"]
+    assert target.read_bytes() == content
+    assert target.with_suffix(".nfo").read_text() == "Existing metadata"
+    assert (config.work_dir / video["id"] / "video.mp4").read_bytes() == b"completed media"
 
 
 def test_missing_sidecars_are_warnings(config, db, worker, video, monkeypatch, caplog):

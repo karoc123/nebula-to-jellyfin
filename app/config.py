@@ -8,6 +8,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 FORMAT = "bv*[vcodec~='^(hvc1|hev1|hevc)'][height<=1080]+ba/bv*[height<=1080]+ba/b[height<=1080]"
+VIDEO_EXTENSIONS = {".mp4", ".mkv", ".webm", ".mov"}
 # These options can affect output, execution, authentication, or completion semantics.
 # Accept a useful, explicit subset of yt-dlp's Python options instead.
 OPTION_TYPES = {
@@ -47,6 +48,10 @@ def validate_options(value: str | dict) -> dict:
             raise ValueError(f"{key} must not be empty")
         if key == "subtitleslangs" and not all(isinstance(v, str) for v in item):
             raise ValueError("subtitleslangs must contain strings")
+        if key == "merge_output_format" and any(
+            f".{extension}" not in VIDEO_EXTENSIONS for extension in item.split("/")
+        ):
+            raise ValueError("Merge output formats must be mp4, mkv, webm or mov (separated by /)")
     return options
 
 

@@ -141,3 +141,69 @@ def test_logs_and_versions(client):
     assert {row["component"] for row in status["updates"]} == {"application", "yt-dlp"}
     assert all(row["status"] == "unknown" for row in status["updates"])
     assert "Application started" in client.get("/api/logs").text
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {"Origin": "https://untrusted.example"},
+        {"Origin": "null"},
+        {"Origin": "http://testserver", "Sec-Fetch-Site": "cross-site"},
+        {"Sec-Fetch-Site": "cross-site"},
+    ],
+)
+def test_cross_origin_posts_cannot_delete_cookies(client, config, headers):
+    cookie = "# Netscape HTTP Cookie File\n.nebula.tv\tTRUE\t/\tTRUE\t0\ttoken\tsecret\n"
+    config.cookie_path.write_text(cookie)
+    response = client.post("/settings/cookies", headers=headers, follow_redirects=False)
+    assert response.status_code == 403
+    assert config.cookie_path.read_text() == cookie
+
+
+def test_same_origin_post(client):
+    assert (
+        client.post(
+            "/api/settings/test-cookie", headers={"Origin": "http://testserver"}
+        ).status_code
+        == 202
+    )
+
+
+def test_catalog_order_uses_source_dates(client, config, monkeypatch):
+    entries = [
+        {
+            "id": identity,
+            "title": identity,
+            "timestamp": timestamp,
+            "url": f"https://nebula.tv/videos/{identity}",
+        }
+        for identity, timestamp in [("newest", 300), ("middle", 200), ("oldest", 100)]
+    ]
+    monkeypatch.setattr(
+        "app.ytdlp.fetch_info", lambda *a, **k: {"_type": "playlist", "entries": entries}
+    )
+    db = client.app.state.db
+    ingest.import_channel(config, db, {"url": "https://nebula.tv/probe", "mode": "future"})
+    page = client.get("/channels/probe").text
+    assert (
+        page.index('value="newest"') < page.index('value="middle"') < page.index('value="oldest"')
+    )
+    # Discovering an older video later must not move it above newer publications.
+    entries.append({**entries[-1], "id": "backfill", "timestamp": 50})
+    ingest.import_channel(config, db, {"url": "https://nebula.tv/probe"}, checking=True)
+    page = client.get("/channels/probe").text
+    assert page.index('value="oldest"') < page.index('value="backfill"')
+
+
+def test_job_history_pagination_keeps_old_failures_accessible(client):
+    db = client.app.state.db
+    failed = db.enqueue("video", {"url": "https://nebula.tv/videos/failed"})
+    db.execute("UPDATE jobs SET status='error',error='Import failed' WHERE id=?", (failed,))
+    for i in range(30):
+        db.enqueue("video", {"url": f"https://nebula.tv/videos/later-{i}"})
+    assert len(client.get("/api/status").json()["jobs"]) == 30
+    older = client.get("/api/status?job_offset=30").json()["jobs"]
+    assert [job["id"] for job in older] == [failed]
+    assert older[0]["error"] == "Import failed"
+    assert client.post(f"/api/jobs/{failed}/retry").status_code == 200
+    assert client.get("/api/status?job_offset=-1").status_code == 422

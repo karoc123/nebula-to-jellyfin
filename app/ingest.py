@@ -67,16 +67,17 @@ def upsert_channel(
     channel_id: str,
     name: str,
     url: str,
-    description: str = "",
+    description: str | None = None,
     image_url: str | None = None,
 ) -> None:
     identity(channel_id)
     directory = f"{library.sanitize(name, 90)} [{channel_id}]"
     db.execute(
         "INSERT INTO channels(id,name,url,directory,description,image_url) VALUES(?,?,?,?,?,?) "
-        "ON CONFLICT(id) DO UPDATE SET name=excluded.name,description=excluded.description,"
+        "ON CONFLICT(id) DO UPDATE SET name=excluded.name,"
+        "description=COALESCE(?,channels.description),"
         "image_url=COALESCE(excluded.image_url,channels.image_url)",
-        (channel_id, name, url, directory, description or "", image_url),
+        (channel_id, name, url, directory, description or "", image_url, description),
     )
 
 
@@ -149,20 +150,23 @@ def import_channel(config: Config, db: Database, payload: dict, *, checking=Fals
         for index, entry in enumerate(entries):
             video_id = identity(entry.get("id"))
             video_url = normalize_url(entry.get("webpage_url") or entry.get("url") or "", "video")
+            published = publication(entry) if entry.get("timestamp") is not None else None
             known = conn.execute("SELECT status FROM videos WHERE id=?", (video_id,)).fetchone()
             selected = (checking and old is not None and old["initialized"] and known is None) or (
                 not checking and (mode == "all" or (mode == "latest" and index < payload["latest"]))
             )
             stamp = now()
             conn.execute(
-                "INSERT OR IGNORE INTO videos(id,channel_id,url,title,status,"
+                "INSERT INTO videos(id,channel_id,url,title,published_at,status,"
                 "created_at,updated_at) "
-                "VALUES(?,?,?,?,?,?,?)",
+                "VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET "
+                "published_at=COALESCE(videos.published_at,excluded.published_at)",
                 (
                     video_id,
                     channel_id,
                     video_url,
                     entry.get("title") or video_id,
+                    published,
                     "queued" if selected else "available",
                     stamp,
                     stamp,

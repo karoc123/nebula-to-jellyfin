@@ -7,7 +7,7 @@
 <label for="options">Global yt-dlp Python options (JSON)</label>
 <textarea id="options" name="options" rows="7" spellcheck="false">{{ options }}</textarea>
 <p class="hint">Defaults: prefer HEVC up to 1080p, English and German subtitles, no video re-encoding. Options apply to the next download and manual retries. Paths remain controlled by the application.</p>
-<details><summary>Supported options</summary><p>{{ supported }}</p><p>Example: <code>{"subtitleslangs": ["en.*", "de.*"], "ratelimit": 5000000}</code></p></details>
+<details><summary>Supported options</summary><p>{{ supported }}</p><p>Merge containers: mp4, mkv, webm or mov; separate alternatives with /.</p><p>Example: <code>{"subtitleslangs": ["en.*", "de.*"], "ratelimit": 5000000}</code></p></details>
 <div class="form-actions"><label>Daily time <input name="at" type="time" value="{{ schedule.time }}" required></label>
 <label>Timezone <input name="timezone" value="{{ schedule.timezone }}" required></label><button>Save settings</button></div>
 </form></section>

@@ -4,17 +4,16 @@ import asyncio
 import fcntl
 import json
 import logging
-import os
 import tempfile
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from http.cookiejar import LoadError, MozillaCookieJar
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from threading import Event, Thread
+from threading import Event, Lock, Thread
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -24,6 +23,7 @@ from .db import Database
 
 BASE_DIR = Path(__file__).parent
 log = logging.getLogger("app")
+COOKIE_LOCK = Lock()
 
 
 def save_cookies(config: Config, content: str) -> None:
@@ -40,22 +40,14 @@ def save_cookies(config: Config, content: str) -> None:
                 raise ValueError("Expected a Netscape cookie file") from exc
             if not any(c.domain.lstrip(".") in {"nebula.tv", "www.nebula.tv"} for c in jar):
                 raise ValueError("Cookie file has no Nebula cookies")
-    if config.cookie_path.exists():
-        backup = config.cookie_path.with_suffix(".txt.bak")
-        library.atomic_bytes(backup, config.cookie_path.read_bytes(), mode=0o600)
-        backup.chmod(0o600)
-    if not content.strip():
-        config.cookie_path.unlink(missing_ok=True)
-        return
-    # Set permissions before writing authentication material.
-    temporary = config.cookie_path.with_suffix(".incoming")
-    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as handle:
-        os.fchmod(handle.fileno(), 0o600)
-        handle.write(content.strip() + "\n")
-        handle.flush()
-        os.fsync(handle.fileno())
-    temporary.replace(config.cookie_path)
+    with COOKIE_LOCK:
+        if config.cookie_path.exists():
+            backup = config.cookie_path.with_suffix(".txt.bak")
+            library.atomic_bytes(backup, config.cookie_path.read_bytes(), mode=0o600)
+        if not content.strip():
+            config.cookie_path.unlink(missing_ok=True)
+            return
+        library.atomic_bytes(config.cookie_path, (content.strip() + "\n").encode(), mode=0o600)
 
 
 def create_app(config: Config | None = None, *, start_workers: bool = True) -> FastAPI:
@@ -116,6 +108,17 @@ def create_app(config: Config | None = None, *, start_workers: bool = True) -> F
             lock.close()
 
     application = FastAPI(title="Nebula to Jellyfin", lifespan=lifespan)
+
+    @application.middleware("http")
+    async def same_origin(request: Request, call_next):
+        if request.method == "POST":
+            origin = request.headers.get("origin")
+            if request.headers.get("sec-fetch-site") == "cross-site" or (
+                origin is not None and origin != str(request.base_url).rstrip("/")
+            ):
+                return JSONResponse({"detail": "Cross-origin requests are not allowed"}, 403)
+        return await call_next(request)
+
     application.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
     templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
@@ -167,7 +170,7 @@ def create_app(config: Config | None = None, *, start_workers: bool = True) -> F
             raise HTTPException(404, "Channel not found")
         videos = db.rows(
             "SELECT * FROM videos WHERE channel_id=? "
-            "ORDER BY created_at DESC,id LIMIT 100 OFFSET ?",
+            "ORDER BY published_at DESC,created_at DESC,id LIMIT 100 OFFSET ?",
             (channel_id, offset),
         )
         return render(request, "channel.html", channel=record, videos=videos, offset=offset)
@@ -292,7 +295,10 @@ def create_app(config: Config | None = None, *, start_workers: bool = True) -> F
 
     @application.get("/api/status")
     def status(
-        request: Request, offset: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=500)
+        request: Request,
+        offset: int = Query(0, ge=0),
+        limit: int = Query(100, ge=1, le=500),
+        job_offset: int = Query(0, ge=0),
     ):
         db = database(request)
         cfg = request.app.state.config
@@ -323,7 +329,7 @@ def create_app(config: Config | None = None, *, start_workers: bool = True) -> F
                 "ORDER BY v.updated_at DESC,v.id LIMIT ? OFFSET ?",
                 (limit, offset),
             ),
-            "jobs": db.rows("SELECT * FROM jobs ORDER BY id DESC LIMIT 30"),
+            "jobs": db.rows("SELECT * FROM jobs ORDER BY id DESC LIMIT 30 OFFSET ?", (job_offset,)),
             "counts": {
                 r["status"]: r["n"]
                 for r in db.rows("SELECT status,count(*) AS n FROM videos GROUP BY status")

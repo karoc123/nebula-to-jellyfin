@@ -30,10 +30,11 @@ function errorDetails(message) {
   return node;
 }
 let offset = 0;
+let jobOffset = 0;
 async function refresh() {
   if (!document.getElementById("videos") && !document.getElementById("updates")) return;
   try {
-    const response = await fetch(`/api/status?offset=${offset}`, {cache: "no-store"});
+    const response = await fetch(`/api/status?offset=${offset}&job_offset=${jobOffset}`, {cache: "no-store"});
     if (!response.ok) throw new Error("Could not load status");
     const data = await response.json();
     const channels = document.getElementById("channels");
@@ -79,8 +80,11 @@ async function refresh() {
         }
         return node;
       }));
+      document.getElementById("jobs-page").textContent = data.jobs.length ? `Jobs ${jobOffset + 1}–${jobOffset + data.jobs.length}` : "No background work on this page";
+      document.getElementById("jobs-previous").disabled = jobOffset === 0;
+      document.getElementById("jobs-next").disabled = data.jobs.length < 30;
     }
-    if (document.getElementById("jobs") && !data.jobs.length) document.getElementById("jobs").append(el("p", "No background work yet.", "hint"));
+    if (document.getElementById("jobs") && !data.jobs.length) document.getElementById("jobs").append(el("p", "No background work on this page.", "hint"));
     const updates = document.getElementById("updates");
     if (updates) updates.replaceChildren(...data.updates.map(item => {
       const node = el("p", `${item.component}: installed ${item.installed}; latest ${item.latest || "unknown"}; ${item.status}. Last successful check: ${item.succeeded_at || "Never"}.`);
@@ -119,6 +123,8 @@ if (cookieButton) cookieButton.addEventListener("click", async () => {
 if (document.getElementById("previous")) {
   document.getElementById("previous").onclick = () => { offset = Math.max(0, offset - 100); refresh(); };
   document.getElementById("next").onclick = () => { offset += 100; refresh(); };
+  document.getElementById("jobs-previous").onclick = () => { jobOffset = Math.max(0, jobOffset - 30); refresh(); };
+  document.getElementById("jobs-next").onclick = () => { jobOffset += 30; refresh(); };
 }
 refresh();
 setInterval(refresh, 2500);

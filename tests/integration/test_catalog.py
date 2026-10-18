@@ -109,3 +109,31 @@ def test_channel_rename_keeps_directory(config, db, monkeypatch):
     ingest.import_channel(config, db, payload)
     assert db.channel("probe")["name"] == "Renamed channel"
     assert db.channel("probe")["directory"] == directory
+
+
+def test_single_import_preserves_channel_description(config, db, monkeypatch, info):
+    source = catalog(monkeypatch, [])
+    source["description"] = "Channel description"
+    ingest.import_channel(config, db, {"url": "https://nebula.tv/probe", "mode": "future"})
+    monkeypatch.setattr("app.ytdlp.fetch_info", lambda *args, **kwargs: info)
+    ingest.import_video(config, db, info["url"])
+    assert db.channel("probe")["description"] == "Channel description"
+    # An explicit catalog edit can still clear the description.
+    source["description"] = ""
+    monkeypatch.setattr("app.ytdlp.fetch_info", lambda *args, **kwargs: source)
+    ingest.import_channel(config, db, {"url": "https://nebula.tv/probe", "mode": "future"})
+    assert db.channel("probe")["description"] == ""
+
+
+def test_catalog_refresh_fills_dates_without_changing_downloaded_metadata(config, db, monkeypatch):
+    source = catalog(monkeypatch, [entry("video")])
+    payload = {"url": "https://nebula.tv/probe", "mode": "future"}
+    ingest.import_channel(config, db, payload)
+    assert db.video("video")["published_at"] is None
+    source["entries"][0]["timestamp"] = 1_700_000_000
+    ingest.import_channel(config, db, payload)
+    published = db.video("video")["published_at"]
+    assert published == ingest.publication(source["entries"][0])
+    source["entries"][0]["timestamp"] += 3600
+    ingest.import_channel(config, db, payload)
+    assert db.video("video")["published_at"] == published

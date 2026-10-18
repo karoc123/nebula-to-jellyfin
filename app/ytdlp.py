@@ -107,6 +107,7 @@ def download(config: Config, video: dict, work: Path, options: dict, progress, s
             "outtmpl": str(work / "video.%(ext)s"),
             "continuedl": True,
             "overwrites": False,
+            "skip_unavailable_fragments": False,
             "writeinfojson": True,
             "updatetime": False,
             "progress_hooks": [hook],
