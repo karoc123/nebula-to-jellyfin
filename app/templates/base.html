@@ -9,7 +9,8 @@
 </head>
 <body>
 <header><a class="brand" href="/">Nebula to Jellyfin</a>
-<nav><a href="/">Overview</a><a href="/settings">Settings</a><a href="/logs">Logs</a></nav></header>
+<nav><a href="/">Overview</a><a href="/settings">Settings</a><a href="/logs">Logs</a></nav>
+<a class="cookie-state {{ 'ok' if cookies_saved else 'missing' }}" href="/settings#authentication">{{ 'Cookies saved' if cookies_saved else 'No cookies saved' }}</a></header>
 <main><p id="feedback" role="status"></p>{% block content %}{% endblock %}</main>
 </body>
 </html>

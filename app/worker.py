@@ -6,7 +6,7 @@ import shutil
 from pathlib import Path
 from threading import Event
 
-from . import ingest, library, ytdlp
+from . import ingest, library, nebula, ytdlp
 from .config import Config
 from .db import Database, now
 
@@ -28,8 +28,17 @@ class Worker:
             elif job["kind"] == "cookie_test":
                 if not self.config.cookie_path.exists():
                     raise ValueError("No cookie file has been imported")
+                claims = nebula.authorization_claims(nebula.cookie_token(self.config.cookie_path))
+                if claims.get("is_anonymous") or claims.get("is_subscribed") is False:
+                    raise ValueError(
+                        "Cookies are valid but the Nebula account has no active subscription"
+                    )
                 info = ytdlp.fetch_info(self.config, ytdlp.TEST_URL)
-                result = {"title": info.get("title"), "channel": info.get("channel")}
+                result = {
+                    "subscription": "active",
+                    "test video": info.get("title") or ytdlp.TEST_URL,
+                    "channel": info.get("channel"),
+                }
             else:
                 result = ingest.import_channel(
                     self.config, self.db, payload, checking=job["kind"] == "check"

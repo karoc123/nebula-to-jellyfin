@@ -4,6 +4,19 @@ function el(tag, text, className) {
   if (className) node.className = className;
   return node;
 }
+function resultText(value) {
+  if (!value) return "";
+  try {
+    const data = JSON.parse(value);
+    if (typeof data === "string") return data;
+    if (data && typeof data === "object") {
+      return Object.entries(data)
+        .filter(([, item]) => item !== null && item !== undefined)
+        .map(([key, item]) => `${key}: ${item}`).join("; ");
+    }
+  } catch (error) { return value; }
+  return String(value);
+}
 function feedback(message) { document.getElementById("feedback").textContent = message; }
 async function action(url, body) {
   const response = await fetch(url, {method: "POST", body});
@@ -73,7 +86,7 @@ async function refresh() {
         const node = el("div", undefined, "job"); node.dataset.id = String(job.id);
         const payload = JSON.parse(job.payload);
         node.append(el("p", `#${job.id} ${job.kind}: ${payload.url || "Saved cookies"} — ${job.status}`));
-        if (job.result) node.append(el("p", job.result, "hint"));
+        if (job.result) node.append(el("p", resultText(job.result), "hint"));
         if (job.error) {
           const details = errorDetails(job.error); details.open = openJobs.has(String(job.id));
           node.append(details, button("Retry import", `/api/jobs/${job.id}/retry`));
@@ -87,7 +100,7 @@ async function refresh() {
     if (document.getElementById("jobs") && !data.jobs.length) document.getElementById("jobs").append(el("p", "No background work on this page.", "hint"));
     const updates = document.getElementById("updates");
     if (updates) updates.replaceChildren(...data.updates.map(item => {
-      const node = el("p", `${item.component}: installed ${item.installed}; latest ${item.latest || "unknown"}; ${item.status}. Last successful check: ${item.succeeded_at || "Never"}.`);
+      const node = el("p", `${item.component}: installed ${item.installed}; latest ${item.latest || "unknown"}; ${item.status}. Last successful check: ${item.succeeded_at || "Never"}.`, `update ${item.status}`);
       if (item.error) node.append(errorDetails(item.error)); return node;
     }));
   } catch (error) { feedback(error.message); }
@@ -114,7 +127,7 @@ if (cookieButton) cookieButton.addEventListener("click", async () => {
       try {
         const response = await fetch(`/api/jobs/${job.job_id}`); const state = await response.json();
         if (state.status === "done" || state.status === "error") {
-          result.textContent = state.error || state.result; cookieButton.disabled = false;
+          result.textContent = state.error || resultText(state.result); cookieButton.disabled = false;
         } else setTimeout(poll, 1500);
       } catch (error) { result.textContent = error.message; cookieButton.disabled = false; }
     }; setTimeout(poll, 1000);

@@ -85,7 +85,7 @@ The two directories next to `compose.yaml` contain:
 | `state/` | Database, authentication cookies, settings and logs |
 | `media/` | Finished library and temporary download files |
 
-To store videos somewhere else, replace `./media` in Compose with an existing host directory, for example `/mnt/videos:/media`. Leave the container path `/media` unchanged. Prepare the directory on the host before starting the application. Keep `state/` on local storage.
+To store videos somewhere else, replace `./media` in Compose with an existing host directory, for example `/mnt/videos:/media`. Leave the container path `/media` unchanged. Prepare the directory on the host and make it writable for the container user; see [Permission denied](#permission-denied). Keep `state/` on local storage.
 
 ## Update and back up
 
@@ -106,23 +106,50 @@ View container logs with `docker compose logs -f`, or open **Logs** in the UI.
 
 | Problem | What to do |
 | --- | --- |
-| Cookie test fails or downloads return 401/403 | Export fresh cookies while logged into Nebula, import them, then retry |
-| Permission denied | Set the container user to match the directory owner; see below |
+| Cookie test fails or downloads return 401/403 | Export fresh cookies while logged into Nebula and confirm the account has an active subscription, then import them and retry |
+| Permission denied | Make `state/` and `media/` writable for the container UID; see below |
 | Download failed | Expand Error details, fix the cause and click Retry |
 | New videos do not appear in Jellyfin | Check its folder mapping and NFO reader, then scan the library |
 | Update status is unknown | The release check could not complete; downloads continue normally |
 
 ### Permission denied
 
-The container uses a non-root user. Bind-mounted directories must allow that user to write. Docker does not automatically match container users to host users.
+The image runs as UID/GID `1000:1000`. Docker does not translate UIDs for bind mounts, so `state/` and `media/` must be writable by that user. If your host user has a different UID/GID, set the container user and the directory ownership to the same values.
 
-Run `id -u` and `id -g` on the host to find your user and group IDs. If they differ from the image's default `1000:1000`, add the matching values to the service:
+1. Find your host UID and GID:
 
-```yaml
-    user: "1001:1001" # Replace both numbers with your host user and group IDs.
-```
+   ```sh
+   id -u
+   id -g
+   ```
 
-Then run `docker compose up -d`. Existing files must also be writable by that user. The application does not change ownership or permissions of host directories.
+2. If the output is not `1000` and `1000`, add the matching user to `compose.yaml`:
+
+   ```yaml
+       user: "1001:1001" # Replace with the UID and GID from step 1.
+   ```
+
+3. Set the owner of both directories:
+
+   ```sh
+   cd nebula-to-jellyfin
+   sudo mkdir -p state media
+   sudo chown -R "$(id -u):$(id -g)" state media
+   ```
+
+   If you use a different host directory for `/media`, run the same `chown` on that directory instead of `media`.
+
+4. Start the container and verify the effective user and write access:
+
+   ```sh
+   docker compose up -d
+   docker compose exec nebula-downloader id
+   docker compose exec nebula-downloader sh -c 'test -w /data && test -w /media && echo writable'
+   ```
+
+   The `id` output must show the UID/GID from step 1. The second command must print `writable`.
+
+If files were previously created under a different UID, run the `chown -R` command again. Jellyfin only needs read access to `media/library`, which the default file modes allow.
 
 ## Build from source
 

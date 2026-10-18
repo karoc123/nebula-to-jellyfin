@@ -11,8 +11,9 @@
 <div class="form-actions"><label>Daily time <input name="at" type="time" value="{{ schedule.time }}" required></label>
 <label>Timezone <input name="timezone" value="{{ schedule.timezone }}" required></label><button>Save settings</button></div>
 </form></section>
-<section class="card"><h2>Nebula authentication</h2>
-<p>Cookie file: {{ 'imported' if cookie_present else 'not imported' }}.</p>
+<section class="card" id="authentication"><h2>Nebula authentication</h2>
+<p>Status: <span id="cookie-status" class="badge {{ 'done' if cookies_saved else 'error' }}">{{ 'Cookie file saved' if cookies_saved else 'No cookie file saved' }}</span></p>
+<p class="hint">A saved cookie file does not prove the cookies are still valid. Use Test saved cookies to verify the cookies and your active Nebula subscription.</p>
 <form method="post" action="/settings/cookies" enctype="multipart/form-data" data-form>
 <label>Netscape cookie file <input type="file" name="file" accept=".txt"></label>
 <label for="cookies">Or paste exported cookie content</label>

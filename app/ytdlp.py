@@ -13,7 +13,9 @@ from yt_dlp import YoutubeDL
 from .config import FORMAT, Config, validate_options
 
 log = logging.getLogger(__name__)
-TEST_URL = "https://nebula.tv/videos/hai-the-logistics-of-imax"
+# Subscriber-only video. The subscription check is authoritative; this URL proves that the
+# saved cookies also unlock Nebula originals.
+TEST_URL = "https://nebula.tv/videos/jetlag-s19e8"
 
 
 class Stopped(Exception):

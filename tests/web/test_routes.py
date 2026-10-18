@@ -81,6 +81,19 @@ def test_cookie_import_validation_backup_and_background_test(client, config):
     assert not config.cookie_path.exists()
 
 
+def test_cookie_state_is_visible_on_all_pages(client, config):
+    cookie = "# Netscape HTTP Cookie File\n.nebula.tv\tTRUE\t/\tTRUE\t0\ttoken\tsecret\n"
+    for page in ("/", "/settings", "/logs"):
+        assert 'class="cookie-state missing"' in client.get(page).text
+    assert "No cookie file saved" in client.get("/settings").text
+    config.cookie_path.write_text(cookie)
+    for page in ("/", "/settings", "/logs"):
+        assert 'class="cookie-state ok"' in client.get(page).text
+    settings = client.get("/settings").text
+    assert "Cookie file saved" in settings
+    assert "secret" not in settings
+
+
 def test_retry_rejects_done_and_exposes_error(client, info):
     db = client.app.state.db
     ingest.upsert_channel(db, "probe", "Probe", "https://nebula.tv/probe")

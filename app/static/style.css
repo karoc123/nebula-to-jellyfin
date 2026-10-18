@@ -14,6 +14,9 @@ a { color: var(--accent); }
 header { display: flex; gap: 24px; align-items: center; padding: 14px 24px; border-bottom: 1px solid var(--border); background: var(--panel); }
 .brand { color: var(--text); font-weight: 700; text-decoration: none; }
 nav { display: flex; gap: 16px; }
+.cookie-state { margin-left: auto; padding: 3px 10px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font-size: 13px; text-decoration: none; }
+.cookie-state.ok { color: #75e59c; border-color: #2f5b3f; }
+.cookie-state.missing { color: var(--err); border-color: #5c3030; }
 main { max-width: 1100px; margin: auto; padding: 24px; }
 h1 { font-size: 24px; }
 h2 { font-size: 18px; margin-top: 0; }
@@ -38,6 +41,8 @@ th { color: var(--muted); }
 .badge.done { color: #75e59c; }
 .badge.downloading, .badge.publishing { color: var(--accent); }
 .badge.error, summary { color: var(--err); }
+.update.current { color: #75e59c; }
+.update.available, .update.unknown { color: var(--err); }
 summary { cursor: pointer; }
 details p { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 700px; }
 .job, .catalog-item { border-bottom: 1px solid var(--border); padding: 10px 0; }

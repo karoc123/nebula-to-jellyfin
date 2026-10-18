@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import http.client
 import json
 import logging
 import os
 import re
 import shutil
-import urllib.error
+import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime
@@ -66,25 +67,41 @@ def write_nfo(path: Path, kind: str, fields: dict, identity: str) -> None:
     atomic_bytes(path, ET.tostring(root, encoding="utf-8", xml_declaration=True))
 
 
+def jpeg_source(url: str) -> str:
+    """Nebula images default to PNG; request JPEG for the .jpg files Jellyfin expects."""
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.hostname == "images.nebula.tv" and not re.search(r"\.[A-Za-z0-9]+$", parsed.path):
+        return urllib.parse.urlunsplit(parsed._replace(path=parsed.path + ".jpg"))
+    return url
+
+
 def fetch_image(url: str | None, dest: Path) -> bool:
-    if dest.exists():
-        return True
     if not url:
         log.warning("Artwork absent at source: %s", dest.name)
         return False
+    url = jpeg_source(url)
     try:
         request = urllib.request.Request(url, headers={"User-Agent": "nebula-to-jellyfin/0.1.0"})
         with urllib.request.urlopen(request, timeout=30) as response:
             content = response.read(20_000_001)
-    except (urllib.error.URLError, TimeoutError) as exc:
+    except (OSError, http.client.HTTPException) as exc:
         log.warning("Optional artwork unavailable: %s", exc)
         return False
     if not content or len(content) > 20_000_000:
         log.warning("Optional artwork is empty or too large")
         return False
+    if dest.exists() and dest.stat().st_size == len(content) and dest.read_bytes() == content:
+        return True
     # Filesystem failures intentionally propagate to the affected video.
     atomic_bytes(dest, content)
     return True
+
+
+def write_channel_artwork(config: Config, channel: dict) -> None:
+    show = config.library_dir / channel["directory"]
+    show.mkdir(parents=True, exist_ok=True)
+    fetch_image(channel.get("image_url"), show / "poster.jpg")
+    fetch_image(channel.get("banner_url"), show / "fanart.jpg")
 
 
 def prepare_receipt(work: Path) -> dict:
@@ -123,10 +140,7 @@ def publish(config: Config, video: dict, channel: dict, work: Path) -> Path:
         },
         channel["id"],
     )
-    poster = show / "poster.jpg"
-    if fetch_image(channel.get("image_url") or video.get("thumb_url"), poster):
-        if not (show / "fanart.jpg").exists():
-            shutil.copyfile(poster, show / "fanart.jpg")
+    write_channel_artwork(config, channel)
     thumb = stem.with_name(stem.name + "-thumb.jpg")
     fetch_image(video.get("thumb_url"), thumb)
     subtitles = list(work.glob("video.*.srt")) + list(work.glob("video.*.vtt"))

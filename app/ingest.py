@@ -4,7 +4,7 @@ import re
 from datetime import UTC, datetime
 from urllib.parse import urlsplit
 
-from . import library, ytdlp
+from . import library, nebula, ytdlp
 from .config import Config
 from .db import Database, now
 
@@ -69,16 +69,41 @@ def upsert_channel(
     url: str,
     description: str | None = None,
     image_url: str | None = None,
+    banner_url: str | None = None,
 ) -> None:
     identity(channel_id)
     directory = f"{library.sanitize(name, 90)} [{channel_id}]"
     db.execute(
-        "INSERT INTO channels(id,name,url,directory,description,image_url) VALUES(?,?,?,?,?,?) "
+        "INSERT INTO channels(id,name,url,directory,description,image_url,banner_url) "
+        "VALUES(?,?,?,?,?,?,?) "
         "ON CONFLICT(id) DO UPDATE SET name=excluded.name,"
         "description=COALESCE(?,channels.description),"
-        "image_url=COALESCE(excluded.image_url,channels.image_url)",
-        (channel_id, name, url, directory, description or "", image_url, description),
+        "image_url=COALESCE(excluded.image_url,channels.image_url),"
+        "banner_url=COALESCE(excluded.banner_url,channels.banner_url)",
+        (
+            channel_id,
+            name,
+            url,
+            directory,
+            description or "",
+            image_url,
+            banner_url,
+            description,
+        ),
     )
+
+
+def write_missing_artwork(config: Config, before: dict | None, after: dict) -> None:
+    show = config.library_dir / after["directory"]
+    if (
+        before is not None
+        and before["image_url"] == after["image_url"]
+        and before["banner_url"] == after["banner_url"]
+        and (show / "poster.jpg").exists()
+        and (show / "fanart.jpg").exists()
+    ):
+        return
+    library.write_channel_artwork(config, after)
 
 
 def store_video(
@@ -120,8 +145,17 @@ def import_video(config: Config, db: Database, url: str) -> dict:
     if info.get("_type") == "playlist":
         raise ValueError("Expected a single video")
     channel_id = identity(info.get("channel_id"))
+    before = db.channel(channel_id)
+    image_url = banner_url = None
+    if before is None or not before["image_url"] or not before["banner_url"]:
+        image_url, banner_url = nebula.channel_artwork(channel_id)
     upsert_channel(
-        db, channel_id, info.get("channel") or channel_id, f"https://nebula.tv/{channel_id}"
+        db,
+        channel_id,
+        info.get("channel") or channel_id,
+        f"https://nebula.tv/{channel_id}",
+        image_url=image_url,
+        banner_url=banner_url,
     )
     store_video(db, info, channel_id, url, selected=True, full=True)
     return {"video_id": info["id"]}
@@ -134,14 +168,17 @@ def import_channel(config: Config, db: Database, payload: dict, *, checking=Fals
     info = ytdlp.fetch_info(config, url, flat=True)
     if info.get("_type") != "playlist" or "entries" not in info:
         raise ValueError("Nebula did not return a channel catalog")
+    image_url, banner_url = nebula.channel_artwork(channel_id)
     upsert_channel(
         db,
         channel_id,
         info.get("title") or channel_id,
         url,
         info.get("description") or "",
-        info.get("thumbnail"),
+        image_url,
+        banner_url,
     )
+    write_missing_artwork(config, old, db.channel(channel_id))
     mode = payload.get("mode", "future")
     entries = info["entries"]
     # Nebula's channel extractor returns newest first. Baseline every entry before subscribing.

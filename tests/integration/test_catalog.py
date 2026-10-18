@@ -100,6 +100,37 @@ def test_channel_failure_isolated(config, db, worker, monkeypatch):
     assert [row["status"] for row in db.rows("SELECT * FROM jobs ORDER BY id")] == ["error", "done"]
 
 
+def test_channel_artwork_is_stored_and_written(config, db, monkeypatch):
+    catalog(monkeypatch, [])
+    monkeypatch.setattr(
+        "app.nebula.channel_artwork",
+        lambda slug: ("https://example.org/avatar.jpg", "https://example.org/banner.jpg"),
+    )
+
+    def save(url, dest):
+        dest.write_bytes(url.encode())
+        return True
+
+    monkeypatch.setattr("app.library.fetch_image", save)
+    ingest.import_channel(config, db, {"url": "https://nebula.tv/probe", "mode": "future"})
+    channel = db.channel("probe")
+    assert channel["image_url"] == "https://example.org/avatar.jpg"
+    assert channel["banner_url"] == "https://example.org/banner.jpg"
+    show = config.library_dir / channel["directory"]
+    assert (show / "poster.jpg").read_bytes() == b"https://example.org/avatar.jpg"
+    assert (show / "fanart.jpg").read_bytes() == b"https://example.org/banner.jpg"
+
+
+def test_single_import_fills_missing_channel_artwork(config, db, monkeypatch, info):
+    monkeypatch.setattr("app.ytdlp.fetch_info", lambda *args, **kwargs: info)
+    monkeypatch.setattr(
+        "app.nebula.channel_artwork", lambda slug: ("https://example.org/avatar.jpg", None)
+    )
+    ingest.import_video(config, db, info["url"])
+    assert db.channel("probe")["image_url"] == "https://example.org/avatar.jpg"
+    assert db.channel("probe")["banner_url"] is None
+
+
 def test_channel_rename_keeps_directory(config, db, monkeypatch):
     source = catalog(monkeypatch, [entry("video")])
     payload = {"url": "https://nebula.tv/probe", "mode": "future"}

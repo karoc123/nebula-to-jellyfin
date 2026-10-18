@@ -10,6 +10,11 @@ from app.main import create_app
 from app.worker import Worker
 
 
+@pytest.fixture(autouse=True)
+def no_channel_artwork(monkeypatch):
+    monkeypatch.setattr("app.nebula.channel_artwork", lambda slug: (None, None))
+
+
 @pytest.fixture
 def config(tmp_path):
     cfg = Config(tmp_path / "state", tmp_path / "share/library", tmp_path / "share/work")

@@ -1,3 +1,4 @@
+import json
 import xml.etree.ElementTree as ET
 from threading import Event
 from urllib.error import URLError
@@ -6,6 +7,61 @@ import pytest
 
 from app import library
 from app.worker import Worker
+
+
+def test_cookie_test_requires_active_subscription(config, db, worker, monkeypatch):
+    config.cookie_path.write_text(
+        "# Netscape HTTP Cookie File\n.nebula.tv\tTRUE\t/\tTRUE\t0\tnebula_auth.apiToken\tsecret\n"
+    )
+    monkeypatch.setattr(
+        "app.nebula.authorization_claims",
+        lambda token: {"is_anonymous": False, "is_subscribed": False},
+    )
+    job_id = db.enqueue("cookie_test", {})
+    worker.step()
+    job = db.one("SELECT * FROM jobs WHERE id=?", (job_id,))
+    assert job["status"] == "error"
+    assert "no active subscription" in job["error"]
+
+
+def test_cookie_test_accepts_claims_without_subscription_flags(config, db, worker, monkeypatch):
+    config.cookie_path.write_text(
+        "# Netscape HTTP Cookie File\n.nebula.tv\tTRUE\t/\tTRUE\t0\tnebula_auth.apiToken\tsecret\n"
+    )
+    monkeypatch.setattr("app.nebula.authorization_claims", lambda token: {})
+    monkeypatch.setattr(
+        "app.ytdlp.fetch_info", lambda cfg, url: {"title": "Finale", "channel": "Jet Lag"}
+    )
+    job_id = db.enqueue("cookie_test", {})
+    worker.step()
+    job = db.one("SELECT * FROM jobs WHERE id=?", (job_id,))
+    assert job["status"] == "done"
+
+
+def test_cookie_test_checks_subscription_and_exclusive_video(config, db, worker, monkeypatch):
+    config.cookie_path.write_text(
+        "# Netscape HTTP Cookie File\n.nebula.tv\tTRUE\t/\tTRUE\t0\tnebula_auth.apiToken\tsecret\n"
+    )
+    tokens, urls = [], []
+    monkeypatch.setattr(
+        "app.nebula.authorization_claims",
+        lambda token: tokens.append(token) or {"is_anonymous": False, "is_subscribed": True},
+    )
+    monkeypatch.setattr(
+        "app.ytdlp.fetch_info",
+        lambda cfg, url: urls.append(url) or {"title": "Finale", "channel": "Jet Lag"},
+    )
+    job_id = db.enqueue("cookie_test", {})
+    worker.step()
+    job = db.one("SELECT * FROM jobs WHERE id=?", (job_id,))
+    assert job["status"] == "done"
+    assert tokens == ["secret"]
+    assert urls == ["https://nebula.tv/videos/jetlag-s19e8"]
+    assert json.loads(job["result"]) == {
+        "subscription": "active",
+        "test video": "Finale",
+        "channel": "Jet Lag",
+    }
 
 
 def test_publish_sidecars_and_stable_paths(config, db, worker, video, download):
@@ -29,6 +85,61 @@ def test_publish_sidecars_and_stable_paths(config, db, worker, video, download):
     assert not (config.work_dir / video["id"]).exists()
     assert not worker.step()
     assert len(download) == 1
+
+
+def serve_images(monkeypatch, bodies):
+    class Response:
+        def __init__(self, body):
+            self.body = body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, limit=-1):
+            return self.body
+
+    def urlopen(request, timeout=None):
+        return Response(bodies[request.full_url])
+
+    monkeypatch.setattr("urllib.request.urlopen", urlopen)
+
+
+def test_channel_artwork_replaces_stale_files(config, db, worker, video, download, monkeypatch):
+    db.execute(
+        "UPDATE channels SET image_url=?,banner_url=? WHERE id='probe'",
+        ("https://example.org/avatar.jpg", "https://example.org/banner.jpg"),
+    )
+    show = config.library_dir / db.channel("probe")["directory"]
+    show.mkdir(parents=True)
+    (show / "poster.jpg").write_bytes(b"episode thumbnail")
+    (show / "fanart.jpg").write_bytes(b"episode thumbnail")
+    serve_images(
+        monkeypatch,
+        {
+            "https://example.org/avatar.jpg": b"channel avatar",
+            "https://example.org/banner.jpg": b"channel banner",
+        },
+    )
+    worker.step()
+    assert (show / "poster.jpg").read_bytes() == b"channel avatar"
+    assert (show / "fanart.jpg").read_bytes() == b"channel banner"
+
+
+def test_episode_thumbnail_is_not_show_poster(
+    config, db, worker, video, download, monkeypatch, caplog
+):
+    db.update_video(video["id"], thumb_url="https://example.org/episode.jpg")
+    serve_images(monkeypatch, {"https://example.org/episode.jpg": b"episode image"})
+    worker.step()
+    show = config.library_dir / db.channel("probe")["directory"]
+    assert not (show / "poster.jpg").exists()
+    assert not (show / "fanart.jpg").exists()
+    assert "Artwork absent at source: poster.jpg" in caplog.text
+    target = config.library_dir / db.video(video["id"])["target_path"]
+    assert target.with_name(target.stem + "-thumb.jpg").read_bytes() == b"episode image"
 
 
 @pytest.mark.parametrize("failure", ["after_receipt", "after_move", "before_done"])

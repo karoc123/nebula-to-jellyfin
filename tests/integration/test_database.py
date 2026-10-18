@@ -15,7 +15,10 @@ def test_upgrade_preserves_records(config, tmp_path):
     db = Database(config.db_path)
     db.migrate(previous)
     db.set_setting("preserved", {"value": "before upgrade"})
-    db.execute("INSERT INTO channels(id,name,url,directory) VALUES('probe','Probe','url','Probe')")
+    db.execute(
+        "INSERT INTO channels(id,name,url,directory,image_url) "
+        "VALUES('probe','Probe','url','Probe','https://example.org/avatar.jpg')"
+    )
     db.execute(
         "INSERT INTO videos(id,channel_id,url,title,status,path_stem,target_path,"
         "created_at,updated_at) "
@@ -26,8 +29,10 @@ def test_upgrade_preserves_records(config, tmp_path):
     assert db.setting("preserved") == {"value": "before upgrade"}
     assert db.video("id")["target_path"] == "stable.mp4"
     assert db.video("id")["status"] == "done"
-    assert db.one("PRAGMA user_version")["user_version"] == 2
+    assert db.one("PRAGMA user_version")["user_version"] == 3
     assert db.rows("SELECT * FROM update_cache") == []
+    assert db.channel("probe")["image_url"] == "https://example.org/avatar.jpg"
+    assert db.channel("probe")["banner_url"] is None
 
 
 def test_migration_rollback(config, tmp_path):

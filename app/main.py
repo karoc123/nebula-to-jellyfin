@@ -120,7 +120,14 @@ def create_app(config: Config | None = None, *, start_workers: bool = True) -> F
         return await call_next(request)
 
     application.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
-    templates = Jinja2Templates(directory=BASE_DIR / "templates")
+
+    def template_context(request: Request):
+        cfg = getattr(request.app.state, "config", None)
+        return {"cookies_saved": bool(cfg and cfg.cookie_path.exists())}
+
+    templates = Jinja2Templates(
+        directory=BASE_DIR / "templates", context_processors=[template_context]
+    )
 
     def database(request: Request) -> Database:
         return request.app.state.db
@@ -223,7 +230,6 @@ def create_app(config: Config | None = None, *, start_workers: bool = True) -> F
             "settings.html",
             options=json.dumps(db.setting("options", {}), indent=2),
             schedule=db.setting("schedule", {"time": "04:00", "timezone": cfg.timezone}),
-            cookie_present=cfg.cookie_path.exists(),
             supported=", ".join(OPTION_TYPES),
         )
 
