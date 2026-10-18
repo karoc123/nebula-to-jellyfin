@@ -1,0 +1,12 @@
+services:
+  nebula-downloader:
+    image: ghcr.io/karoc123/nebula-to-jellyfin:v0.1.0
+    build: .
+    restart: unless-stopped
+    init: true
+    ports:
+      - "8099:8000"
+    volumes:
+      - ./state:/data
+      - ./media:/media
+    stop_grace_period: 2m # Allow active network requests to finish on shutdown.

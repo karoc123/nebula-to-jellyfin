@@ -1,0 +1,16 @@
+.venv/
+.vscode/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+dist/
+*.egg-info/
+data/
+library/
+state/
+media/
+.env
+nebula.tv_cookies.txt
+*.cookies.txt
+dev-media/

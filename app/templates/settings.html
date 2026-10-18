@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Settings</h1>
+{% if request.query_params.get('saved') %}<p>Settings saved.</p>{% endif %}
+<section class="card"><h2>Download options and daily checks</h2>
+<form method="post" action="/settings" data-form>
+<label for="options">Global yt-dlp Python options (JSON)</label>
+<textarea id="options" name="options" rows="7" spellcheck="false">{{ options }}</textarea>
+<p class="hint">Defaults: prefer HEVC up to 1080p, English and German subtitles, no video re-encoding. Options apply to the next download and manual retries. Paths remain controlled by the application.</p>
+<details><summary>Supported options</summary><p>{{ supported }}</p><p>Example: <code>{"subtitleslangs": ["en.*", "de.*"], "ratelimit": 5000000}</code></p></details>
+<div class="form-actions"><label>Daily time <input name="at" type="time" value="{{ schedule.time }}" required></label>
+<label>Timezone <input name="timezone" value="{{ schedule.timezone }}" required></label><button>Save settings</button></div>
+</form></section>
+<section class="card"><h2>Nebula authentication</h2>
+<p>Cookie file: {{ 'imported' if cookie_present else 'not imported' }}.</p>
+<form method="post" action="/settings/cookies" enctype="multipart/form-data" data-form>
+<label>Netscape cookie file <input type="file" name="file" accept=".txt"></label>
+<label for="cookies">Or paste exported cookie content</label>
+<textarea id="cookies" name="cookies" rows="5" spellcheck="false" placeholder="# Netscape HTTP Cookie File"></textarea>
+<p class="hint">An empty submission removes the saved cookie file. The previous file is backed up locally.</p>
+<div class="form-actions"><button>Import cookies</button><button type="button" id="test-cookie">Test saved cookies</button></div>
+<p id="cookie-result" role="status"></p></form></section>
+<section class="card"><h2>Versions and updates</h2><div id="updates"></div>
+<p class="hint">Checks run in the background at most daily. Install updates by pulling a new container image. An upstream yt-dlp update may precede an application image containing it.</p></section>
+{% endblock %}

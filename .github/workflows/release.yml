@@ -1,0 +1,47 @@
+name: Release container
+on:
+  release:
+    types: [published]
+permissions:
+  contents: read
+  packages: write
+jobs:
+  publish:
+    if: ${{ !github.event.release.prerelease }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.13.1'
+          python-version: '3.13'
+      - name: Validate stable release version
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          python - <<'PY'
+          import os, re, tomllib
+          tag = os.environ['RELEASE_TAG']
+          assert re.fullmatch(r'v\d+\.\d+\.\d+', tag), 'Expected vMAJOR.MINOR.PATCH'
+          with open('pyproject.toml', 'rb') as handle:
+              assert tomllib.load(handle)['project']['version'] == tag[1:]
+          PY
+      - run: uv sync --locked
+      - run: uv run ruff check . && uv run ruff format --check . && uv run pytest -q
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/karoc123/nebula-to-jellyfin:${{ github.event.release.tag_name }}
+            ghcr.io/karoc123/nebula-to-jellyfin:latest

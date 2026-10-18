@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ channel.name }}</h1>
+<section class="card">
+<p>{{ channel.description }}</p>
+<p>Last checked: {{ channel.last_checked_at or 'Never' }}. Subscription: {{ 'enabled' if channel.subscribed else 'disabled' }}.</p>
+{% if channel.last_error %}<details open><summary>Channel error</summary><p>{{ channel.last_error }}</p></details>{% endif %}
+<div class="form-actions">
+<button data-action="/api/channels/{{ channel.id }}/subscription" data-enabled="{{ 'false' if channel.subscribed else 'true' }}">{{ 'Unsubscribe' if channel.subscribed else 'Subscribe: future uploads' }}</button>
+<button data-action="/api/channels/{{ channel.id }}/check">Refresh catalog and check new uploads</button>
+</div></section>
+<section class="card"><h2>Select older videos</h2>
+<p class="hint">Only available videos can be selected. Failed videos require Retry in the overview.</p>
+<form method="post" action="/channels/{{ channel.id }}/select" data-form>
+{% for video in videos %}
+<label class="catalog-item"><input type="checkbox" name="videos" value="{{ video.id }}" {% if video.status != 'available' %}disabled{% endif %}> {{ video.title }} <span class="hint">{{ video.status }} · {{ video.published_at or 'Publication loaded before download' }}</span></label>
+{% else %}<p>No catalog videos yet.</p>{% endfor %}
+<button>Download selected videos</button></form>
+<div class="form-actions">{% if offset %}<a href="?offset={{ [offset - 100, 0] | max }}">Previous</a>{% endif %}
+{% if videos | length == 100 %}<a href="?offset={{ offset + 100 }}">Next</a>{% endif %}</div>
+</section>
+{% endblock %}

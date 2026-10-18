@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nebula to Jellyfin</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+<header><a class="brand" href="/">Nebula to Jellyfin</a>
+<nav><a href="/">Overview</a><a href="/settings">Settings</a><a href="/logs">Logs</a></nav></header>
+<main><p id="feedback" role="status"></p>{% block content %}{% endblock %}</main>
+</body>
+</html>
