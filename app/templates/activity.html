@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head"><h1>Activity</h1>
+<div class="form-actions">
+<button type="button" class="secondary" data-clear="done">Clear finished</button>
+<button type="button" class="secondary" data-clear="error">Clear failed</button></div></div>
+{% if request.query_params.get('queued') %}<p class="notice">Import queued.</p>{% endif %}
+<p class="hint">Imports, channel checks and cookie tests. Finished entries are deleted automatically after {{ retention }} days; failed entries stay until retried or cleared.</p>
+<section class="card">
+<div class="table-scroll"><table class="stack"><thead><tr><th>Status</th><th>Task</th><th>Updated</th><th></th></tr></thead><tbody id="jobs"></tbody></table></div>
+<div class="pager"><button type="button" class="secondary" id="jobs-previous">Previous</button><span id="jobs-page" class="hint"></span><button type="button" class="secondary" id="jobs-next">Next</button></div>
+</section>
+{% endblock %}

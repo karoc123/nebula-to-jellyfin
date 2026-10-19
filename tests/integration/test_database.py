@@ -29,10 +29,11 @@ def test_upgrade_preserves_records(config, tmp_path):
     assert db.setting("preserved") == {"value": "before upgrade"}
     assert db.video("id")["target_path"] == "stable.mp4"
     assert db.video("id")["status"] == "done"
-    assert db.one("PRAGMA user_version")["user_version"] == 3
+    assert db.one("PRAGMA user_version")["user_version"] == 4
     assert db.rows("SELECT * FROM update_cache") == []
     assert db.channel("probe")["image_url"] == "https://example.org/avatar.jpg"
     assert db.channel("probe")["banner_url"] is None
+    assert db.video("id")["dismissed"] == 0
 
 
 def test_migration_rollback(config, tmp_path):

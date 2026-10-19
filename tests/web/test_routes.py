@@ -8,7 +8,21 @@ from app.main import create_app
 from app.worker import Worker
 
 
-@pytest.mark.parametrize("page", ["/", "/settings", "/logs", "/api/status", "/api/health"])
+@pytest.mark.parametrize(
+    "page",
+    [
+        "/",
+        "/channels",
+        "/activity",
+        "/settings",
+        "/logs",
+        "/api/status",
+        "/api/downloads",
+        "/api/channels",
+        "/api/jobs",
+        "/api/health",
+    ],
+)
 def test_pages(client, page):
     response = client.get(page)
     assert response.status_code == 200
@@ -25,9 +39,10 @@ def test_import_enqueues_without_fetching(client, monkeypatch):
         follow_redirects=False,
     )
     assert response.status_code == 303
-    status = client.get("/api/status").json()
-    assert len(status["jobs"]) == 1
-    assert status["jobs"][0]["status"] == "queued"
+    assert response.headers["location"] == "/activity?queued=1"
+    jobs = client.get("/api/jobs").json()["jobs"]
+    assert len(jobs) == 1
+    assert jobs[0]["status"] == "queued"
     assert client.post("/api/settings/test-cookie").status_code == 202
 
 
@@ -43,7 +58,7 @@ def test_import_enqueues_without_fetching(client, monkeypatch):
 )
 def test_invalid_import(client, data):
     assert client.post("/add", data=data).status_code == 400
-    assert client.get("/api/status").json()["jobs"] == []
+    assert client.get("/api/jobs").json()["jobs"] == []
 
 
 def test_settings_validation_and_atomic_save(client):
@@ -100,15 +115,17 @@ def test_retry_rejects_done_and_exposes_error(client, info):
     ingest.store_video(db, info, "probe", info["url"], selected=True, full=True)
     db.update_video(info["id"], status="error", error="Detailed source error\nNext line")
     assert (
-        client.get("/api/status").json()["videos"][0]["error"] == "Detailed source error\nNext line"
+        client.get("/api/downloads").json()["videos"][0]["error"]
+        == "Detailed source error\nNext line"
     )
     assert client.post(f"/api/videos/{info['id']}/retry").status_code == 200
     assert db.video(info["id"])["error"] is None
     db.update_video(info["id"], status="done")
     assert client.post(f"/api/videos/{info['id']}/retry").status_code == 409
     assert client.post("/api/videos/missing/retry").status_code == 404
-    assert client.get("/api/status?offset=-1").status_code == 422
-    assert client.get("/api/status?limit=501").status_code == 422
+    assert client.get("/api/downloads?offset=-1").status_code == 422
+    assert client.get("/api/downloads?limit=501").status_code == 422
+    assert client.get("/api/downloads?status=available").status_code == 400
 
 
 def test_catalog_selection_subscription_and_manual_check(client, info):
@@ -212,11 +229,114 @@ def test_job_history_pagination_keeps_old_failures_accessible(client):
     db = client.app.state.db
     failed = db.enqueue("video", {"url": "https://nebula.tv/videos/failed"})
     db.execute("UPDATE jobs SET status='error',error='Import failed' WHERE id=?", (failed,))
-    for i in range(30):
+    for i in range(50):
         db.enqueue("video", {"url": f"https://nebula.tv/videos/later-{i}"})
-    assert len(client.get("/api/status").json()["jobs"]) == 30
-    older = client.get("/api/status?job_offset=30").json()["jobs"]
+    assert len(client.get("/api/jobs").json()["jobs"]) == 50
+    older = client.get("/api/jobs?offset=50").json()["jobs"]
     assert [job["id"] for job in older] == [failed]
     assert older[0]["error"] == "Import failed"
     assert client.post(f"/api/jobs/{failed}/retry").status_code == 200
-    assert client.get("/api/status?job_offset=-1").status_code == 422
+    assert client.get("/api/jobs?offset=-1").status_code == 422
+
+
+def add_downloads(db, statuses):
+    ingest.upsert_channel(db, "probe", "Probe", "https://nebula.tv/probe")
+    ingest.upsert_channel(db, "other", "Other", "https://nebula.tv/other")
+    for index, (channel, status) in enumerate(statuses):
+        identity = f"{channel}-{status}-{index}"
+        ingest.store_video(
+            db,
+            {"id": identity, "title": f"Title {identity}"},
+            channel,
+            f"https://nebula.tv/videos/{identity}",
+            selected=False,
+        )
+        db.update_video(identity, status=status, error="Failed" if status == "error" else None)
+
+
+def test_download_filters_cover_all_rows(client):
+    db = client.app.state.db
+    add_downloads(db, [("probe", "error")] * 120 + [("other", "error"), ("probe", "done")])
+    add_downloads(db, [("probe", "available")])
+    data = client.get("/api/downloads?status=error&limit=100").json()
+    assert data["total"] == 121
+    assert len(data["videos"]) == 100
+    assert data["counts"] == {"error": 121, "done": 1}
+    assert client.get("/api/downloads?channel=other").json()["total"] == 1
+    assert client.get("/api/downloads?q=probe-done").json()["total"] == 1
+    # LIKE wildcards are matched literally.
+    assert client.get("/api/downloads?q=%25").json()["total"] == 0
+    assert client.get("/api/downloads?status=active").json()["total"] == 0
+
+
+def test_bulk_actions_respect_channel_and_search(client):
+    db = client.app.state.db
+    add_downloads(
+        db, [("probe", "error"), ("probe", "error"), ("other", "error"), ("probe", "done")]
+    )
+    response = client.post("/api/downloads/retry-errors", data={"channel": "probe"})
+    assert response.json() == {"count": 2}
+    assert db.video("probe-error-0")["status"] == "queued"
+    assert db.video("probe-error-0")["error"] is None
+    assert db.video("other-error-2")["status"] == "error"
+    response = client.post("/api/downloads/remove-errors", data={"q": "other"})
+    assert response.json() == {"count": 1}
+    assert db.video("other-error-2")["status"] == "available"
+    assert client.post("/api/downloads/remove-done").json() == {"count": 1}
+    finished = db.video("probe-done-3")
+    assert (finished["status"], finished["dismissed"]) == ("done", 1)
+    assert client.get("/api/downloads?status=done").json()["total"] == 0
+    assert client.post("/api/downloads/delete-everything").status_code == 404
+
+
+def test_remove_single_video(client):
+    db = client.app.state.db
+    add_downloads(db, [("probe", "error"), ("probe", "done"), ("probe", "queued")])
+    assert client.post("/api/videos/probe-error-0/remove").status_code == 200
+    assert db.video("probe-error-0")["status"] == "available"
+    assert client.post("/api/videos/probe-done-1/remove").status_code == 200
+    assert db.video("probe-done-1")["dismissed"] == 1
+    assert client.post("/api/videos/probe-queued-2/remove").status_code == 409
+    assert client.post("/api/videos/missing/remove").status_code == 404
+
+
+def test_pause_and_resume(client):
+    assert client.get("/api/status").json()["paused"] is None
+    assert 'id="pause-banner" class="banner" hidden' in client.get("/").text
+    assert client.post("/api/queue/pause").status_code == 200
+    assert client.get("/api/downloads").json()["paused"]["reason"] == "Paused manually"
+    assert "Paused manually" in client.get("/channels").text
+    assert client.post("/api/queue/resume").status_code == 200
+    assert client.get("/api/status").json()["paused"] is None
+
+
+def test_clear_and_prune_jobs(client):
+    db = client.app.state.db
+    done = db.enqueue("video", {"url": "https://nebula.tv/videos/done"})
+    old = db.enqueue("video", {"url": "https://nebula.tv/videos/old"})
+    failed = db.enqueue("video", {"url": "https://nebula.tv/videos/failed"})
+    db.execute("UPDATE jobs SET status='done' WHERE id IN (?,?)", (done, old))
+    db.execute("UPDATE jobs SET updated_at='2000-01-01T00:00:00+00:00' WHERE id=?", (old,))
+    db.execute("UPDATE jobs SET status='error' WHERE id=?", (failed,))
+    db.prune_jobs()
+    assert [job["id"] for job in client.get("/api/jobs").json()["jobs"]] == [failed, done]
+    assert client.post("/api/jobs/clear", data={"status": "running"}).status_code == 400
+    assert client.post("/api/jobs/clear", data={"status": "done"}).status_code == 200
+    assert [job["id"] for job in client.get("/api/jobs").json()["jobs"]] == [failed]
+    assert client.post("/api/jobs/clear", data={"status": "error"}).status_code == 200
+    assert client.get("/api/jobs").json()["jobs"] == []
+
+
+def test_channel_pages_filter_catalog(client):
+    db = client.app.state.db
+    add_downloads(db, [("probe", "available"), ("probe", "done"), ("probe", "error")])
+    page = client.get("/channels/probe?status=available").text
+    assert 'value="probe-available-0"' in page
+    assert 'value="probe-done-1"' not in page
+    page = client.get("/channels/probe?q=error").text
+    assert 'value="probe-error-2"' in page
+    assert 'value="probe-available-0"' not in page
+    assert client.get("/channels/probe?status=nonsense").status_code == 400
+    overview = client.get("/channels").text
+    assert "1 of 3 downloaded" in overview
+    assert "1 failed" in overview

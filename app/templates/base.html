@@ -8,9 +8,19 @@
   <script src="/static/app.js" defer></script>
 </head>
 <body>
+{% set path = request.url.path %}
 <header><a class="brand" href="/">Nebula to Jellyfin</a>
-<nav><a href="/">Overview</a><a href="/settings">Settings</a><a href="/logs">Logs</a></nav>
+<nav>
+{% for href, label in [("/", "Downloads"), ("/channels", "Channels"), ("/activity", "Activity"), ("/settings", "Settings"), ("/logs", "Logs")] %}
+<a href="{{ href }}" {% if path == href or (href != "/" and path.startswith(href + "/")) %}aria-current="page"{% endif %}>{{ label }}</a>
+{% endfor %}
+</nav>
 <a class="cookie-state {{ 'ok' if cookies_saved else 'missing' }}" href="/settings#authentication">{{ 'Cookies saved' if cookies_saved else 'No cookies saved' }}</a></header>
+<div id="pause-banner" class="banner" {% if not paused %}hidden{% endif %}>
+<p><strong>Downloads paused.</strong> <span id="pause-reason">{{ paused.reason if paused }}</span>
+<span class="hint">Since <time id="pause-time" data-time datetime="{{ paused.at if paused }}">{{ paused.at if paused }}</time></span></p>
+<button type="button" data-queue="resume">Resume downloads</button>
+</div>
 <main><p id="feedback" role="status"></p>{% block content %}{% endblock %}</main>
 </body>
 </html>

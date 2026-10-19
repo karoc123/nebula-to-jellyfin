@@ -2,6 +2,8 @@
 
 Download Nebula videos and channels into a library for Jellyfin, including titles, descriptions, images and subtitles.
 
+![Downloads page](docs/screenshot.png)
+
 **An active, paid [Nebula](https://nebula.tv/) subscription is required.** Support Nebula and its creators as they build an independent alternative to YouTube.
 
 ## Quick start
@@ -46,7 +48,7 @@ Open **http://localhost:8099**. The application has no login; use it on a truste
 
 1. Open **Settings** and upload your cookie file under **Nebula authentication**.
 2. Click **Test saved cookies** and wait for a successful result.
-3. Open **Overview**, paste a Nebula video URL and click **Queue import**.
+3. Open **Downloads**, paste a Nebula video URL and click **Queue import**.
 4. Wait for the download to show **done**.
 
 Your video and its metadata are now in `media/library/`. **Error details** and
@@ -54,7 +56,7 @@ Your video and its metadata are now in `media/library/`. **Error details** and
 
 ## Add channels
 
-Paste a channel URL in Overview and choose a selection:
+Paste a channel URL in Downloads or Channels and choose a selection:
 
 - **Future only** saves the existing catalog without downloading it.
 - **Latest N** downloads the most recent number of videos you enter.
@@ -109,6 +111,7 @@ View container logs with `docker compose logs -f`, or open **Logs** in the UI.
 | Cookie test fails or downloads return 401/403 | Export fresh cookies while logged into Nebula and confirm the account has an active subscription, then import them and retry |
 | Permission denied | Make `state/` and `media/` writable for the container UID; see below |
 | Download failed | Expand Error details, fix the cause and click Retry |
+| Downloads paused | Media storage was unreachable; fix the mount, then click Resume downloads |
 | New videos do not appear in Jellyfin | Check its folder mapping and NFO reader, then scan the library |
 | Update status is unknown | The release check could not complete; downloads continue normally |
 

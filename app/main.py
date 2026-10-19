@@ -19,11 +19,19 @@ from fastapi.templating import Jinja2Templates
 
 from . import ingest, library, scheduler, updates, worker
 from .config import OPTION_TYPES, Config, validate_options, validate_schedule
-from .db import Database
+from .db import DOWNLOAD_STATUSES, JOB_RETENTION, Database, downloads_filter, like
 
 BASE_DIR = Path(__file__).parent
 log = logging.getLogger("app")
 COOKIE_LOCK = Lock()
+# Channel catalog filters, including videos that were never selected.
+CATALOG_STATUSES = {
+    "": (),
+    "available": ("available",),
+    "active": ("queued", "downloading", "publishing"),
+    "done": ("done",),
+    "error": ("error",),
+}
 
 
 def save_cookies(config: Config, content: str) -> None:
@@ -83,6 +91,7 @@ def create_app(config: Config | None = None, *, start_workers: bool = True) -> F
                 while not stop.is_set():
                     try:
                         scheduler.tick(database, cfg.timezone)
+                        database.prune_jobs()
                         updates.check(database)
                     except Exception:
                         log.exception("Maintenance iteration failed")
@@ -123,7 +132,11 @@ def create_app(config: Config | None = None, *, start_workers: bool = True) -> F
 
     def template_context(request: Request):
         cfg = getattr(request.app.state, "config", None)
-        return {"cookies_saved": bool(cfg and cfg.cookie_path.exists())}
+        db = getattr(request.app.state, "db", None)
+        return {
+            "cookies_saved": bool(cfg and cfg.cookie_path.exists()),
+            "paused": db.setting("paused") if db else None,
+        }
 
     templates = Jinja2Templates(
         directory=BASE_DIR / "templates", context_processors=[template_context]
@@ -135,9 +148,45 @@ def create_app(config: Config | None = None, *, start_workers: bool = True) -> F
     def render(request: Request, name: str, **context):
         return templates.TemplateResponse(request, name, context)
 
+    def channel_list(db: Database) -> list[dict]:
+        return db.rows(
+            "SELECT c.*,count(v.id) AS total,"
+            "coalesce(sum(v.status='done'),0) AS done,"
+            "coalesce(sum(v.status='error'),0) AS failed,"
+            "coalesce(sum(v.status IN ('queued','downloading','publishing')),0) AS active "
+            "FROM channels c LEFT JOIN videos v ON v.channel_id=c.id GROUP BY c.id "
+            "ORDER BY c.name COLLATE NOCASE"
+        )
+
+    def next_check(request: Request) -> dict:
+        cfg = request.app.state.config
+        schedule = database(request).setting(
+            "schedule", {"time": "04:00", "timezone": cfg.timezone}
+        )
+        _, next_run = scheduler.schedule_window(
+            datetime.now(UTC), schedule["time"], schedule["timezone"]
+        )
+        return {"next_check": next_run.isoformat(), "schedule": schedule}
+
     @application.get("/", response_class=HTMLResponse)
     def index(request: Request):
-        return render(request, "index.html")
+        channels = database(request).rows(
+            "SELECT id,name FROM channels ORDER BY name COLLATE NOCASE"
+        )
+        return render(request, "index.html", channels=channels)
+
+    @application.get("/channels", response_class=HTMLResponse)
+    def channels(request: Request):
+        return render(
+            request,
+            "channels.html",
+            channels=channel_list(database(request)),
+            **next_check(request),
+        )
+
+    @application.get("/activity", response_class=HTMLResponse)
+    def activity(request: Request):
+        return render(request, "activity.html", retention=JOB_RETENTION.days)
 
     @application.post("/add")
     def add(
@@ -167,20 +216,52 @@ def create_app(config: Config | None = None, *, start_workers: bool = True) -> F
                     "subscribed": subscribed,
                 },
             )
-        return RedirectResponse("/?queued=1", 303)
+        return RedirectResponse("/activity?queued=1", 303)
 
     @application.get("/channels/{channel_id}", response_class=HTMLResponse)
-    def channel(request: Request, channel_id: str, offset: int = Query(0, ge=0)):
+    def channel(
+        request: Request,
+        channel_id: str,
+        offset: int = Query(0, ge=0),
+        status: str = Query(""),
+        q: str = Query("", max_length=200),
+    ):
         db = database(request)
         record = db.channel(channel_id)
         if record is None:
             raise HTTPException(404, "Channel not found")
+        if status not in CATALOG_STATUSES:
+            raise HTTPException(400, "Unknown status filter")
+        counts = {
+            r["status"]: r["n"]
+            for r in db.rows(
+                "SELECT status,count(*) AS n FROM videos WHERE channel_id=? GROUP BY status",
+                (channel_id,),
+            )
+        }
+        where, args = "channel_id=?", [channel_id]
+        if status:
+            statuses = CATALOG_STATUSES[status]
+            where += f" AND status IN ({','.join('?' * len(statuses))})"
+            args += statuses
+        if q.strip():
+            where += " AND title LIKE ? ESCAPE '\\'"
+            args.append(like(q))
         videos = db.rows(
-            "SELECT * FROM videos WHERE channel_id=? "
+            f"SELECT * FROM videos WHERE {where} "
             "ORDER BY published_at DESC,created_at DESC,id LIMIT 100 OFFSET ?",
-            (channel_id, offset),
+            (*args, offset),
         )
-        return render(request, "channel.html", channel=record, videos=videos, offset=offset)
+        return render(
+            request,
+            "channel.html",
+            channel=record,
+            videos=videos,
+            offset=offset,
+            counts=counts,
+            status=status,
+            q=q,
+        )
 
     @application.post("/channels/{channel_id}/select")
     def select(request: Request, channel_id: str, videos: list[str] = Form(...)):
@@ -273,6 +354,43 @@ def create_app(config: Config | None = None, *, start_workers: bool = True) -> F
     def cookie_test(request: Request):
         return {"job_id": database(request).enqueue("cookie_test", {})}
 
+    @application.post("/api/videos/{video_id}/remove")
+    def remove(request: Request, video_id: str):
+        db = database(request)
+        if db.video(video_id) is None:
+            raise HTTPException(404, "Video not found")
+        if not db.remove(video_id):
+            raise HTTPException(409, "Only failed or finished videos can be removed")
+        return {"ok": True}
+
+    @application.post("/api/downloads/{action}")
+    def bulk(
+        request: Request,
+        action: str,
+        channel: str = Form(""),
+        q: str = Form("", max_length=200),
+    ):
+        if action not in {"retry-errors", "remove-errors", "remove-done"}:
+            raise HTTPException(404, "Unknown action")
+        return {"count": database(request).bulk(action, channel, q)}
+
+    @application.post("/api/queue/pause")
+    def pause(request: Request):
+        database(request).pause("Paused manually")
+        return {"ok": True}
+
+    @application.post("/api/queue/resume")
+    def resume(request: Request):
+        database(request).clear_setting("paused")
+        return {"ok": True}
+
+    @application.post("/api/jobs/clear")
+    def clear_jobs(request: Request, status: str = Form(...)):
+        if status not in {"done", "error"}:
+            raise HTTPException(400, "Only finished or failed jobs can be cleared")
+        database(request).execute("DELETE FROM jobs WHERE status=?", (status,))
+        return {"ok": True}
+
     @application.post("/api/videos/{video_id}/retry")
     def retry(request: Request, video_id: str):
         db = database(request)
@@ -300,18 +418,8 @@ def create_app(config: Config | None = None, *, start_workers: bool = True) -> F
         return job
 
     @application.get("/api/status")
-    def status(
-        request: Request,
-        offset: int = Query(0, ge=0),
-        limit: int = Query(100, ge=1, le=500),
-        job_offset: int = Query(0, ge=0),
-    ):
+    def status(request: Request):
         db = database(request)
-        cfg = request.app.state.config
-        schedule = db.setting("schedule", {"time": "04:00", "timezone": cfg.timezone})
-        _, next_run = scheduler.schedule_window(
-            datetime.now(UTC), schedule["time"], schedule["timezone"]
-        )
         cached = {r["component"]: r for r in db.rows("SELECT * FROM update_cache")}
         versions = []
         for name, version in updates.installed().items():
@@ -322,27 +430,53 @@ def create_app(config: Config | None = None, *, start_workers: bool = True) -> F
                 record["status"] = "unknown"
             record["installed"] = version
             versions.append(record)
+        return {"updates": versions, "paused": db.setting("paused")}
+
+    @application.get("/api/downloads")
+    def downloads(
+        request: Request,
+        status: str = Query(""),
+        channel: str = Query(""),
+        q: str = Query("", max_length=200),
+        offset: int = Query(0, ge=0),
+        limit: int = Query(100, ge=1, le=500),
+    ):
+        if status not in DOWNLOAD_STATUSES:
+            raise HTTPException(400, "Unknown status filter")
+        db = database(request)
+        where, args = downloads_filter(channel, q)
+        counts = {
+            r["status"]: r["n"]
+            for r in db.rows(
+                f"SELECT status,count(*) AS n FROM videos WHERE {where} GROUP BY status", args
+            )
+        }
+        statuses = DOWNLOAD_STATUSES[status]
+        where += f" AND status IN ({','.join('?' * len(statuses))})"
         return {
-            "channels": db.rows(
-                "SELECT c.*,count(v.id) AS total,"
-                "sum(CASE WHEN v.status='done' THEN 1 ELSE 0 END) AS done "
-                "FROM channels c LEFT JOIN videos v ON v.channel_id=c.id GROUP BY c.id "
-                "ORDER BY c.name"
-            ),
             "videos": db.rows(
                 "SELECT v.*,c.name AS channel_name FROM videos v "
-                "JOIN channels c ON c.id=v.channel_id WHERE v.status!='available' "
-                "ORDER BY v.updated_at DESC,v.id LIMIT ? OFFSET ?",
-                (limit, offset),
+                f"JOIN channels c ON c.id=v.channel_id WHERE {where} "
+                # Running work first, then the most recent changes.
+                "ORDER BY CASE status WHEN 'downloading' THEN 0 WHEN 'publishing' THEN 0 "
+                "ELSE 1 END,v.updated_at DESC,v.id LIMIT ? OFFSET ?",
+                (*args, *statuses, limit, offset),
             ),
-            "jobs": db.rows("SELECT * FROM jobs ORDER BY id DESC LIMIT 30 OFFSET ?", (job_offset,)),
-            "counts": {
-                r["status"]: r["n"]
-                for r in db.rows("SELECT status,count(*) AS n FROM videos GROUP BY status")
-            },
-            "updates": versions,
-            "next_check": next_run.isoformat(),
-            "schedule": schedule,
+            "total": sum(counts.get(name, 0) for name in statuses),
+            "counts": counts,
+            "paused": db.setting("paused"),
+        }
+
+    @application.get("/api/channels")
+    def channels_status(request: Request):
+        return {"channels": channel_list(database(request)), **next_check(request)}
+
+    @application.get("/api/jobs")
+    def jobs(request: Request, offset: int = Query(0, ge=0)):
+        return {
+            "jobs": database(request).rows(
+                "SELECT * FROM jobs ORDER BY id DESC LIMIT 50 OFFSET ?", (offset,)
+            )
         }
 
     @application.get("/logs", response_class=HTMLResponse)

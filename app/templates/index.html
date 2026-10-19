@@ -1,30 +1,26 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Overview</h1>
-{% if request.query_params.get('queued') %}<p>Import queued. Results appear below.</p>{% endif %}
-<section class="card">
-<h2>Import from Nebula</h2>
-<form method="post" action="/add" data-form>
-<label for="urls">Video or channel URLs, one per line</label>
-<textarea id="urls" name="urls" rows="4" required placeholder="https://nebula.tv/videos/…"></textarea>
-<div class="form-actions">
-<label>Selection <select name="mode"><option value="video">Individual videos</option>
-<option value="future">Channel: future only (save current catalog)</option>
-<option value="latest">Channel: latest N videos</option><option value="all">Channel: all videos</option></select></label>
-<label>Latest N <input name="latest" type="number" min="1" max="10000" value="10"></label>
-<label><input name="subscribed" type="checkbox" value="true"> Subscribe to channel</label>
-<button>Queue import</button>
-</div></form>
-<p class="hint">Channel imports save the current catalog for later selection. Future only downloads new uploads discovered after this baseline.</p>
-</section>
-<section class="card"><h2>Channels</h2>
-<button data-action="/api/check">Check subscriptions now</button><p id="schedule" class="hint"></p>
-<div id="channels" class="channels"></div></section>
-<section class="card"><h2>Background imports and checks</h2><div id="jobs"></div>
-<div class="form-actions"><button id="jobs-previous">Previous</button><span id="jobs-page"></span><button id="jobs-next">Next</button></div>
-</section>
-<section class="card"><h2>Downloads</h2>
-<div class="table-scroll"><table><thead><tr><th>Status</th><th>Channel</th><th>Title / publication</th><th>Action</th></tr></thead><tbody id="videos"></tbody></table></div>
-<div class="form-actions"><button id="previous">Previous</button><span id="page"></span><button id="next">Next</button></div>
+<div class="page-head"><h1>Downloads</h1>
+<button type="button" class="secondary" id="pause-button" data-queue="pause" {% if paused %}hidden{% endif %}>Pause downloads</button></div>
+{% include "_import.html" %}
+<section class="card" id="downloads">
+<div class="toolbar">
+<div class="chips" role="group" aria-label="Status">
+{% for value, label in [("", "All"), ("active", "Active"), ("done", "Done"), ("error", "Failed")] %}
+<button type="button" class="chip" data-status="{{ value }}">{{ label }} <span class="count" data-count="{{ value }}"></span></button>
+{% endfor %}
+</div>
+<select id="channel-filter" aria-label="Channel"><option value="">All channels</option>
+{% for channel in channels %}<option value="{{ channel.id }}">{{ channel.name }}</option>{% endfor %}</select>
+<input type="search" id="search" placeholder="Search titles" aria-label="Search titles" maxlength="200">
+</div>
+<div class="toolbar bulk">
+<span class="hint" id="bulk-scope">Applies to all matching downloads, not only this page.</span>
+<button type="button" class="secondary" data-bulk="retry-errors">Retry failed</button>
+<button type="button" class="secondary" data-bulk="remove-errors">Remove failed</button>
+<button type="button" class="secondary" data-bulk="remove-done">Remove done</button>
+</div>
+<div class="table-scroll"><table class="stack"><thead><tr><th>Status</th><th>Video</th><th>Updated</th><th></th></tr></thead><tbody id="videos"></tbody></table></div>
+<div class="pager"><button type="button" class="secondary" id="previous">Previous</button><span id="page" class="hint"></span><button type="button" class="secondary" id="next">Next</button></div>
 </section>
 {% endblock %}

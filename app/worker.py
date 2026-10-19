@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import errno
 import json
 import logging
+import os
 import shutil
 from pathlib import Path
 from threading import Event
@@ -11,6 +13,29 @@ from .config import Config
 from .db import Database, now
 
 log = logging.getLogger(__name__)
+# Errors from an unreachable or full media share. Failing each queued video on them would turn
+# a short NAS outage into hundreds of failed downloads, so the queue pauses instead.
+STORAGE_ERRNOS = {
+    errno.EHOSTDOWN,
+    errno.EIO,
+    errno.ENOTCONN,
+    errno.ESTALE,
+    errno.ENODEV,
+    errno.ENXIO,
+    errno.EROFS,
+    errno.ENOSPC,
+}
+
+
+def storage_error(exc: BaseException | None) -> bool:
+    """yt-dlp wraps file errors in its own exceptions, so inspect the whole chain."""
+    seen = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        if isinstance(exc, OSError) and exc.errno in STORAGE_ERRNOS:
+            return True
+        exc = exc.__cause__ or exc.__context__
+    return False
 
 
 class Worker:
@@ -61,9 +86,17 @@ class Worker:
                     "UPDATE channels SET last_error=? WHERE id=?", (str(exc), channel_id)
                 )
 
+    def pause(self, reason: str) -> None:
+        log.warning("Download queue paused: %s", reason)
+        self.db.pause(reason)
+
     def video(self, video: dict) -> None:
         identity = video["id"]
         work = self.config.work_dir / identity
+        # os.path.isdir also returns False for errors such as EHOSTDOWN.
+        if not os.path.isdir(self.config.library_dir):
+            self.pause(f"Library directory is not accessible: {self.config.library_dir}")
+            return
         try:
             work.mkdir(parents=True, exist_ok=True)
             channel = self.db.channel(video["channel_id"])
@@ -116,6 +149,12 @@ class Worker:
         except Exception as exc:
             if self.stop.is_set():
                 return
+            if storage_error(exc):
+                log.exception("[%s] Storage failed", identity)
+                if self.db.video(identity)["status"] == "downloading":
+                    self.db.update_video(identity, status="queued")
+                self.pause(f"Storage error: {exc}")
+                return
             log.exception("[%s] Video failed", identity)
             self.db.update_video(identity, status="error", error=str(exc))
             return
@@ -128,7 +167,8 @@ class Worker:
         job = self.db.one("SELECT * FROM jobs WHERE status='queued' ORDER BY id LIMIT 1")
         if job:
             self.job(job)
-        if self.stop.is_set():
+        # Pausing only holds video downloads. Imports and checks are few and fail individually.
+        if self.stop.is_set() or self.db.setting("paused"):
             return bool(job)
         video = self.db.one(
             "SELECT * FROM videos WHERE status IN ('queued','publishing') "

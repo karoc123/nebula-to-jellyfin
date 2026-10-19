@@ -3,12 +3,39 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 
 def now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+# Download list filters. "available" videos are catalog entries, not downloads.
+DOWNLOAD_STATUSES = {
+    "": ("queued", "downloading", "publishing", "done", "error"),
+    "active": ("queued", "downloading", "publishing"),
+    "done": ("done",),
+    "error": ("error",),
+}
+JOB_RETENTION = timedelta(days=7)
+
+
+def like(query: str) -> str:
+    escaped = query.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
+def downloads_filter(channel: str = "", query: str = "") -> tuple[str, list]:
+    """WHERE clause for visible downloads; column names are unique to the videos table."""
+    clauses, args = ["dismissed=0", "status!='available'"], []
+    if channel:
+        clauses.append("channel_id=?")
+        args.append(channel)
+    if query.strip():
+        clauses.append("title LIKE ? ESCAPE '\\'")
+        args.append(like(query))
+    return " AND ".join(clauses), args
 
 
 class Database:
@@ -71,6 +98,12 @@ class Database:
             "INSERT INTO settings VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             (key, json.dumps(value)),
         )
+
+    def clear_setting(self, key: str) -> None:
+        self.execute("DELETE FROM settings WHERE key=?", (key,))
+
+    def pause(self, reason: str) -> None:
+        self.set_setting("paused", {"reason": reason, "at": now()})
 
     def enqueue(self, kind: str, payload: dict, key: str | None = None) -> int:
         serialized = json.dumps(payload, sort_keys=True)
@@ -143,3 +176,36 @@ class Database:
                 ).rowcount
                 == 1
             )
+
+    def remove(self, identity: str) -> bool:
+        """Failed videos return to the catalog; finished videos stay done but are hidden."""
+        stamp = now()
+        with self.connect() as conn:
+            failed = conn.execute(
+                "UPDATE videos SET status='available',error=NULL,progress=0,updated_at=? "
+                "WHERE id=? AND status='error'",
+                (stamp, identity),
+            ).rowcount
+            done = conn.execute(
+                "UPDATE videos SET dismissed=1,updated_at=? WHERE id=? AND status='done'",
+                (stamp, identity),
+            ).rowcount
+            return failed + done == 1
+
+    def bulk(self, action: str, channel: str = "", query: str = "") -> int:
+        where, args = downloads_filter(channel, query)
+        statement = {
+            "retry-errors": "status='queued',error=NULL,progress=0",
+            "remove-errors": "status='available',error=NULL,progress=0",
+            "remove-done": "dismissed=1",
+        }[action]
+        status = "done" if action == "remove-done" else "error"
+        with self.connect() as conn:
+            return conn.execute(
+                f"UPDATE videos SET {statement},updated_at=? WHERE {where} AND status=?",
+                (now(), *args, status),
+            ).rowcount
+
+    def prune_jobs(self) -> None:
+        cutoff = (datetime.now(UTC) - JOB_RETENTION).isoformat()
+        self.execute("DELETE FROM jobs WHERE status='done' AND updated_at<?", (cutoff,))

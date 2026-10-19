@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head"><h1>Channels</h1>
+<button type="button" data-action="/api/check">Check subscriptions now</button></div>
+<p class="hint">Next scheduled check: <time data-time data-tz="{{ schedule.timezone }}" datetime="{{ next_check }}">{{ next_check }}</time> ({{ schedule.timezone }}). Change the time in <a href="/settings">Settings</a>.</p>
+{% set import_mode = "future" %}{% include "_import.html" %}
+<div class="channel-grid">
+{% for channel in channels %}
+<article class="card channel-card">
+<a class="channel-head" href="/channels/{{ channel.id }}">
+{% if channel.image_url %}<img src="{{ channel.image_url }}" alt="" loading="lazy">{% else %}<span class="avatar"></span>{% endif %}
+<span><strong>{{ channel.name }}</strong><span class="hint">{{ channel.done }} of {{ channel.total }} downloaded</span></span></a>
+<div class="meter"><span style="width: {{ (100 * channel.done / channel.total) | round | int if channel.total else 0 }}%"></span></div>
+<p class="stats">
+<span class="badge {{ 'done' if channel.subscribed else '' }}">{{ 'Subscribed' if channel.subscribed else 'Not subscribed' }}</span>
+{% if channel.active %}<span class="badge downloading">{{ channel.active }} active</span>{% endif %}
+{% if channel.failed %}<a class="badge error" href="/?status=error&amp;channel={{ channel.id }}">{{ channel.failed }} failed</a>{% endif %}
+</p>
+<p class="hint">Last checked: {% if channel.last_checked_at %}<time data-time datetime="{{ channel.last_checked_at }}">{{ channel.last_checked_at }}</time>{% else %}never{% endif %}</p>
+{% if channel.last_error %}<details><summary>Last check failed</summary><p>{{ channel.last_error }}</p></details>{% endif %}
+<div class="form-actions">
+<button type="button" class="secondary" data-action="/api/channels/{{ channel.id }}/subscription" data-enabled="{{ 'false' if channel.subscribed else 'true' }}">{{ 'Unsubscribe' if channel.subscribed else 'Subscribe' }}</button>
+<button type="button" class="secondary" data-action="/api/channels/{{ channel.id }}/check">Check now</button>
+</div>
+</article>
+{% else %}
+<p class="hint">No channels imported yet. Paste a channel URL above.</p>
+{% endfor %}
+</div>
+{% endblock %}

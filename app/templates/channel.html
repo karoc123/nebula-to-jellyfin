@@ -1,22 +1,46 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>{{ channel.name }}</h1>
-<section class="card">
-<p>{{ channel.description }}</p>
-<p>Last checked: {{ channel.last_checked_at or 'Never' }}. Subscription: {{ 'enabled' if channel.subscribed else 'disabled' }}.</p>
-{% if channel.last_error %}<details open><summary>Channel error</summary><p>{{ channel.last_error }}</p></details>{% endif %}
+<p class="crumbs"><a href="/channels">Channels</a> /</p>
+<section class="card channel-hero" {% if channel.banner_url %}style="--banner: url('{{ channel.banner_url }}')"{% endif %}>
+<div class="channel-head">
+{% if channel.image_url %}<img src="{{ channel.image_url }}" alt="">{% endif %}
+<h1>{{ channel.name }}</h1></div>
+{% if channel.description %}<p>{{ channel.description }}</p>{% endif %}
+<p class="hint">Last checked: {% if channel.last_checked_at %}<time data-time datetime="{{ channel.last_checked_at }}">{{ channel.last_checked_at }}</time>{% else %}never{% endif %}.
+Subscription: {{ 'enabled' if channel.subscribed else 'disabled' }}.</p>
+{% if channel.last_error %}<details open><summary>Last check failed</summary><p>{{ channel.last_error }}</p></details>{% endif %}
 <div class="form-actions">
-<button data-action="/api/channels/{{ channel.id }}/subscription" data-enabled="{{ 'false' if channel.subscribed else 'true' }}">{{ 'Unsubscribe' if channel.subscribed else 'Subscribe: future uploads' }}</button>
-<button data-action="/api/channels/{{ channel.id }}/check">Refresh catalog and check new uploads</button>
+<button type="button" data-action="/api/channels/{{ channel.id }}/subscription" data-enabled="{{ 'false' if channel.subscribed else 'true' }}">{{ 'Unsubscribe' if channel.subscribed else 'Subscribe: future uploads' }}</button>
+<button type="button" class="secondary" data-action="/api/channels/{{ channel.id }}/check">Refresh catalog and check new uploads</button>
+<a href="/?channel={{ channel.id }}">Show downloads</a>
 </div></section>
-<section class="card"><h2>Select older videos</h2>
-<p class="hint">Only available videos can be selected. Failed videos require Retry in the overview.</p>
+<section class="card"><h2>Catalog</h2>
+<div class="toolbar">
+<div class="chips" role="group" aria-label="Status">
+{% for value, label in [("", "All"), ("available", "Not downloaded"), ("active", "Active"), ("done", "Done"), ("error", "Failed")] %}
+{% set n = counts.values() | sum if not value else (counts.get('queued', 0) + counts.get('downloading', 0) + counts.get('publishing', 0) if value == 'active' else counts.get(value, 0)) %}
+<a class="chip" href="?status={{ value }}&amp;q={{ q | urlencode }}" {% if status == value %}aria-current="true"{% endif %}>{{ label }} <span class="count">{{ n }}</span></a>
+{% endfor %}
+</div>
+<form method="get"><input type="hidden" name="status" value="{{ status }}">
+<input type="search" name="q" value="{{ q }}" placeholder="Search titles" aria-label="Search titles" maxlength="200"></form>
+</div>
 <form method="post" action="/channels/{{ channel.id }}/select" data-form>
+<div class="toolbar bulk"><label class="inline"><input type="checkbox" id="select-all"> Select all available on this page</label>
+<button>Download selected videos</button></div>
+<p class="hint">Failed videos are retried from Downloads.</p>
+<div class="catalog">
 {% for video in videos %}
-<label class="catalog-item"><input type="checkbox" name="videos" value="{{ video.id }}" {% if video.status != 'available' %}disabled{% endif %}> {{ video.title }} <span class="hint">{{ video.status }} · {{ video.published_at or 'Publication loaded before download' }}</span></label>
-{% else %}<p>No catalog videos yet.</p>{% endfor %}
-<button>Download selected videos</button></form>
-<div class="form-actions">{% if offset %}<a href="?offset={{ [offset - 100, 0] | max }}">Previous</a>{% endif %}
-{% if videos | length == 100 %}<a href="?offset={{ offset + 100 }}">Next</a>{% endif %}</div>
+<label class="catalog-item"><input type="checkbox" name="videos" value="{{ video.id }}" {% if video.status != 'available' %}disabled{% endif %}>
+<span><span>{{ video.title }}</span>
+<small>{% if video.published_at %}<time data-date datetime="{{ video.published_at }}">{{ video.published_at[:10] }}</time>{% else %}Publication date loads before download{% endif %}</small></span>
+{% if video.status != 'available' %}<span class="badge {{ video.status }}">{{ video.status }}</span>{% endif %}</label>
+{% else %}<p class="hint">No videos match.</p>{% endfor %}
+</div></form>
+<div class="pager">
+{% if offset %}<a href="?status={{ status }}&amp;q={{ q | urlencode }}&amp;offset={{ [offset - 100, 0] | max }}">Previous</a>{% endif %}
+{% if videos %}<span class="hint">Videos {{ offset + 1 }}–{{ offset + videos | length }}</span>{% endif %}
+{% if videos | length == 100 %}<a href="?status={{ status }}&amp;q={{ q | urlencode }}&amp;offset={{ offset + 100 }}">Next</a>{% endif %}
+</div>
 </section>
 {% endblock %}

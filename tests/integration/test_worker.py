@@ -1,4 +1,6 @@
+import errno
 import json
+import shutil
 import xml.etree.ElementTree as ET
 from threading import Event
 from urllib.error import URLError
@@ -301,3 +303,56 @@ def test_stop_leaves_work_recoverable(config, db, worker, video, monkeypatch):
     db.recover()
     assert db.video(video["id"])["status"] == "queued"
     assert (config.work_dir / video["id"] / "video.mp4.part").read_bytes() == b"partial"
+
+
+def test_storage_error_pauses_queue_without_failing_videos(
+    config, db, worker, video, info, monkeypatch
+):
+    from app.ingest import store_video
+
+    store_video(db, {**info, "id": "video-456"}, "probe", info["url"], selected=True, full=True)
+    attempts = []
+
+    def unreachable(cfg, record, work, *args):
+        attempts.append(record["id"])
+        (work / "video.mp4.part").write_bytes(b"partial")
+        try:
+            raise OSError(errno.EHOSTDOWN, "Host is down")
+        except OSError as exc:
+            # yt-dlp reports file errors through its own exception types.
+            raise RuntimeError("Unable to download video: [Errno 112] Host is down") from exc
+
+    monkeypatch.setattr("app.ytdlp.download", unreachable)
+    worker.step()
+    assert db.video(video["id"])["status"] == "queued"
+    assert db.video(video["id"])["error"] is None
+    assert "Host is down" in db.setting("paused")["reason"]
+    # Paused: further videos wait, but background jobs still run.
+    job_id = db.enqueue("cookie_test", {})
+    assert worker.step()
+    assert db.one("SELECT status FROM jobs WHERE id=?", (job_id,))["status"] == "error"
+    assert not worker.step()
+    assert attempts == [video["id"]]
+    assert db.video("video-456")["status"] == "queued"
+    assert (config.work_dir / video["id"] / "video.mp4.part").read_bytes() == b"partial"
+    db.clear_setting("paused")
+    worker.step()
+    assert len(attempts) == 2
+
+
+def test_missing_library_pauses_before_download(config, db, worker, video, download):
+    shutil.rmtree(config.library_dir)
+    worker.step()
+    assert "Library directory is not accessible" in db.setting("paused")["reason"]
+    assert db.video(video["id"])["status"] == "queued"
+    assert download == []
+
+
+def test_network_error_still_fails_video(db, worker, video, monkeypatch):
+    def unreachable(*args):
+        raise OSError(errno.ENETUNREACH, "Network is unreachable")
+
+    monkeypatch.setattr("app.ytdlp.download", unreachable)
+    worker.step()
+    assert db.video(video["id"])["status"] == "error"
+    assert db.setting("paused") is None

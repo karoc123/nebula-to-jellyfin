@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Settings</h1>
-{% if request.query_params.get('saved') %}<p>Settings saved.</p>{% endif %}
+<div class="page-head"><h1>Settings</h1></div>
+{% if request.query_params.get('saved') %}<p class="notice">Settings saved.</p>{% endif %}
 <section class="card"><h2>Download options and daily checks</h2>
 <form method="post" action="/settings" data-form>
 <label for="options">Global yt-dlp Python options (JSON)</label>

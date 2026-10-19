@@ -1,0 +1,16 @@
+<details class="card import" {% if import_open %}open{% endif %}>
+<summary>Import from Nebula</summary>
+<form method="post" action="/add" data-form>
+<label for="urls">Video or channel URLs, one per line</label>
+<textarea id="urls" name="urls" rows="3" required placeholder="https://nebula.tv/videos/… or https://nebula.tv/channel"></textarea>
+<div class="form-actions">
+<label>Selection <select name="mode">
+<option value="video" {% if import_mode != 'future' %}selected{% endif %}>Individual videos</option>
+<option value="future" {% if import_mode == 'future' %}selected{% endif %}>Channel: future only (save current catalog)</option>
+<option value="latest">Channel: latest N videos</option><option value="all">Channel: all videos</option></select></label>
+<label>Latest N <input name="latest" type="number" min="1" max="10000" value="10"></label>
+<label class="inline"><input name="subscribed" type="checkbox" value="true"> Subscribe to channel</label>
+<button>Queue import</button>
+</div></form>
+<p class="hint">Channel imports save the current catalog for later selection. Future only downloads new uploads discovered after this baseline. Progress appears under Activity.</p>
+</details>
