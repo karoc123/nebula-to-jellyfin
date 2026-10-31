@@ -198,8 +198,12 @@ class Database:
             "retry-errors": "status='queued',error=NULL,progress=0",
             "remove-errors": "status='available',error=NULL,progress=0",
             "remove-done": "dismissed=1",
+            "remove-queued": "status='available',error=NULL,progress=0",
         }[action]
-        status = "done" if action == "remove-done" else "error"
+        status = {
+            "remove-done": "done",
+            "remove-queued": "queued",
+        }.get(action, "error")
         with self.connect() as conn:
             return conn.execute(
                 f"UPDATE videos SET {statement},updated_at=? WHERE {where} AND status=?",

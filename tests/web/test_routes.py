@@ -21,6 +21,8 @@ from app.worker import Worker
         "/api/channels",
         "/api/jobs",
         "/api/health",
+        "/favicon.ico",
+        "/static/favicon.svg",
     ],
 )
 def test_pages(client, page):
@@ -286,6 +288,12 @@ def test_bulk_actions_respect_channel_and_search(client):
     finished = db.video("probe-done-3")
     assert (finished["status"], finished["dismissed"]) == ("done", 1)
     assert client.get("/api/downloads?status=done").json()["total"] == 0
+    assert db.video("probe-error-0")["status"] == "queued"
+    assert client.post("/api/downloads/remove-queued", data={"channel": "probe"}).json() == {
+        "count": 2
+    }
+    assert db.video("probe-error-0")["status"] == "available"
+    assert 'data-bulk="remove-queued"' in client.get("/").text
     assert client.post("/api/downloads/delete-everything").status_code == 404
 
 

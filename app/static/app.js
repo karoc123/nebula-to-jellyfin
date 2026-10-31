@@ -127,13 +127,18 @@ async function refreshDownloads() {
   counts = data.counts;
   const active = (counts.queued || 0) + (counts.downloading || 0) + (counts.publishing || 0);
   const total = Object.values(counts).reduce((sum, n) => sum + n, 0);
-  const shown = {"": total, active, done: counts.done || 0, error: counts.error || 0};
+  const shown = {"": total, active, done: counts.done || 0, error: counts.error || 0, queued: counts.queued || 0};
   document.querySelectorAll("[data-count]").forEach(node => { node.textContent = shown[node.dataset.count]; });
   document.querySelectorAll("[data-status]").forEach(node => node.setAttribute("aria-pressed", String(node.dataset.status === filters.status)));
   document.querySelector('[data-bulk="retry-errors"]').textContent = `Retry failed (${shown.error})`;
   document.querySelector('[data-bulk="remove-errors"]').textContent = `Remove failed (${shown.error})`;
   document.querySelector('[data-bulk="remove-done"]').textContent = `Remove done (${shown.done})`;
-  document.querySelectorAll("[data-bulk]").forEach(node => { node.disabled = !shown[node.dataset.bulk === "remove-done" ? "done" : "error"]; });
+  const removeQueued = document.querySelector('[data-bulk="remove-queued"]');
+  if (removeQueued) removeQueued.textContent = `Remove queued (${shown.queued})`;
+  document.querySelectorAll("[data-bulk]").forEach(node => {
+    const key = node.dataset.bulk === "remove-done" ? "done" : (node.dataset.bulk === "remove-queued" ? "queued" : "error");
+    node.disabled = !shown[key];
+  });
   const videos = document.getElementById("videos");
   const open = openDetails(videos);
   videos.replaceChildren(...data.videos.map(video => videoRow(video, open)));
@@ -217,10 +222,11 @@ const BULK = {
   "retry-errors": n => `Retry ${n} failed downloads?`,
   "remove-errors": n => `Remove ${n} failed downloads from this list? They return to the channel catalog and can be selected again.`,
   "remove-done": n => `Remove ${n} finished downloads from this list? Files in the library are kept and the videos stay marked as downloaded.`,
+  "remove-queued": n => `Remove ${n} queued downloads from this list? They return to the channel catalog and can be selected again.`,
 };
 document.querySelectorAll("[data-bulk]").forEach(node => node.addEventListener("click", async () => {
-  const n = node.dataset.bulk === "remove-done" ? counts.done : counts.error;
-  if (!window.confirm(BULK[node.dataset.bulk](n))) return;
+  const n = node.dataset.bulk === "remove-done" ? counts.done : (node.dataset.bulk === "remove-queued" ? counts.queued : counts.error);
+  if (!window.confirm(BULK[node.dataset.bulk](n || 0))) return;
   const body = new FormData(); body.set("channel", filters.channel); body.set("q", filters.q);
   node.disabled = true;
   try {

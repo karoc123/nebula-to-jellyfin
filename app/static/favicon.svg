@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Background Gradient -->
+    <radialGradient id="bgGlow" cx="50%" cy="40%" r="65%">
+      <stop offset="0%" stop-color="#191d28"/>
+      <stop offset="100%" stop-color="#0b0d13"/>
+    </radialGradient>
+    
+    <!-- Neon Gradient for outer bell and tentacles -->
+    <linearGradient id="neonGradient" x1="0%" y1="0%" x2="100%" y2="80%">
+      <stop offset="0%" stop-color="#00F0FF"/>
+      <stop offset="35%" stop-color="#38BDF8"/>
+      <stop offset="70%" stop-color="#A855F7"/>
+      <stop offset="100%" stop-color="#EC4899"/>
+    </linearGradient>
+
+    <!-- Starburst Gradient -->
+    <radialGradient id="starGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="25%" stop-color="#67E8F9"/>
+      <stop offset="60%" stop-color="#A855F7" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#0F172A" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Bell Nebula Fill -->
+    <radialGradient id="bellNebula" cx="50%" cy="45%" r="55%">
+      <stop offset="0%" stop-color="#3B1C5A" stop-opacity="0.9"/>
+      <stop offset="50%" stop-color="#1E1B4B" stop-opacity="0.95"/>
+      <stop offset="100%" stop-color="#0F111D"/>
+    </radialGradient>
+
+    <!-- Drop Shadow / Glow Filter -->
+    <filter id="neonGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Dark Rounded Squircle Badge -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGlow)"/>
+  <rect width="506" height="506" x="3" y="3" rx="109" fill="none" stroke="#2A3040" stroke-width="2" opacity="0.6"/>
+
+  <!-- Inside Bell: Nebula Glow -->
+  <path d="M 125 240 C 125 130 190 95 256 95 C 322 95 387 130 387 240 C 387 252 375 256 360 256 C 300 256 280 256 256 256 C 232 256 212 256 152 256 C 137 256 125 252 125 240 Z" fill="url(#bellNebula)"/>
+
+  <!-- Cosmic Starburst glow inside bell -->
+  <circle cx="256" cy="190" r="90" fill="url(#starGlow)" opacity="0.85"/>
+
+  <!-- Nebula Star Spikes -->
+  <path d="M 256 110 Q 256 190 286 190 Q 256 190 256 270 Q 256 190 226 190 Q 256 190 256 110 Z" fill="#FFFFFF" opacity="0.9"/>
+  <path d="M 176 190 Q 256 190 256 160 Q 256 190 336 190 Q 256 190 256 220 Q 256 190 176 190 Z" fill="#FFFFFF" opacity="0.9"/>
+  <circle cx="256" cy="190" r="10" fill="#FFFFFF"/>
+  <circle cx="256" cy="190" r="18" fill="#67E8F9" opacity="0.5"/>
+
+  <!-- Constellation sparkles -->
+  <circle cx="180" cy="220" r="3.5" fill="#38BDF8"/>
+  <circle cx="160" cy="170" r="4.5" fill="#38BDF8" opacity="0.9"/>
+  <circle cx="330" cy="225" r="3.5" fill="#EC4899"/>
+  <circle cx="350" cy="165" r="4" fill="#C084FC" opacity="0.9"/>
+  <circle cx="215" cy="135" r="2.5" fill="#FFFFFF" opacity="0.8"/>
+  <circle cx="295" cy="130" r="3" fill="#FFFFFF" opacity="0.8"/>
+
+  <!-- Specular highlight on dome -->
+  <path d="M 165 170 C 185 130 220 115 256 112" fill="none" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round" opacity="0.85"/>
+
+  <!-- Jellyfish Bell Outer Rim -->
+  <path d="M 125 240 C 125 130 190 95 256 95 C 322 95 387 130 387 240 C 387 252 375 256 360 256 C 300 256 280 256 256 256 C 232 256 212 256 152 256 C 137 256 125 252 125 240 Z" fill="none" stroke="url(#neonGradient)" stroke-width="18" stroke-linecap="round" stroke-linejoin="round" filter="url(#neonGlow)"/>
+
+  <!-- Tentacles & Download Arrow -->
+  <!-- Outer Left Tentacle -->
+  <path d="M 148 266 C 130 330 110 375 138 418" fill="none" stroke="#00F0FF" stroke-width="16" stroke-linecap="round" filter="url(#neonGlow)"/>
+  <!-- Inner Left Tentacle -->
+  <path d="M 198 266 C 190 320 180 370 206 430" fill="none" stroke="#38BDF8" stroke-width="16" stroke-linecap="round" filter="url(#neonGlow)"/>
+
+  <!-- Central Download Arrow (Sync from Nebula to Jellyfin) -->
+  <path d="M 256 266 L 256 385" fill="none" stroke="url(#neonGradient)" stroke-width="18" stroke-linecap="round"/>
+  <path d="M 215 350 L 256 395 L 297 350" fill="none" stroke="url(#neonGradient)" stroke-width="18" stroke-linecap="round" stroke-linejoin="round" filter="url(#neonGlow)"/>
+
+  <!-- Inner Right Tentacle -->
+  <path d="M 314 266 C 322 320 332 370 306 430" fill="none" stroke="#A855F7" stroke-width="16" stroke-linecap="round" filter="url(#neonGlow)"/>
+  <!-- Outer Right Tentacle -->
+  <path d="M 364 266 C 382 330 402 375 374 418" fill="none" stroke="#EC4899" stroke-width="16" stroke-linecap="round" filter="url(#neonGlow)"/>
+</svg>

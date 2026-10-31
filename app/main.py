@@ -13,7 +13,13 @@ from pathlib import Path
 from threading import Event, Lock, Thread
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -167,6 +173,10 @@ def create_app(config: Config | None = None, *, start_workers: bool = True) -> F
             datetime.now(UTC), schedule["time"], schedule["timezone"]
         )
         return {"next_check": next_run.isoformat(), "schedule": schedule}
+
+    @application.get("/favicon.ico", include_in_schema=False)
+    def favicon():
+        return FileResponse(BASE_DIR / "static" / "favicon.ico")
 
     @application.get("/", response_class=HTMLResponse)
     def index(request: Request):
@@ -370,7 +380,7 @@ def create_app(config: Config | None = None, *, start_workers: bool = True) -> F
         channel: str = Form(""),
         q: str = Form("", max_length=200),
     ):
-        if action not in {"retry-errors", "remove-errors", "remove-done"}:
+        if action not in {"retry-errors", "remove-errors", "remove-done", "remove-queued"}:
             raise HTTPException(404, "Unknown action")
         return {"count": database(request).bulk(action, channel, q)}
 
