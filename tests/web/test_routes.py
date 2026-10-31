@@ -167,12 +167,15 @@ def test_instance_lock(client, config):
             pass
 
 
-def test_logs_and_versions(client):
+def test_logs_and_versions(client, monkeypatch):
     assert client.get("/api/logs").status_code == 200
     status = client.get("/api/status").json()
     assert {row["component"] for row in status["updates"]} == {"application", "yt-dlp"}
     assert all(row["status"] == "unknown" for row in status["updates"])
     assert "Application started" in client.get("/api/logs").text
+    assert 'data-action="/api/updates/check"' in client.get("/settings").text
+    monkeypatch.setattr("app.updates.fetch_release", lambda repo: "0.3.0")
+    assert client.post("/api/updates/check").status_code == 200
 
 
 @pytest.mark.parametrize(

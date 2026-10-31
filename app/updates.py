@@ -30,16 +30,16 @@ def fetch_release(repository: str) -> str:
     return str(payload["tag_name"]).removeprefix("v")
 
 
-def check(db: Database, current: datetime | None = None) -> None:
+def check(db: Database, current: datetime | None = None, force: bool = False) -> None:
     current = current or datetime.now(UTC)
     for component, local in installed().items():
         old = db.one("SELECT * FROM update_cache WHERE component=?", (component,))
-        if old and current - datetime.fromisoformat(old["attempted_at"]) < timedelta(days=1):
-            if old["installed"] != local:
-                db.execute(
-                    "UPDATE update_cache SET installed=?,status='unknown' WHERE component=?",
-                    (local, component),
-                )
+        if (
+            not force
+            and old
+            and old["installed"] == local
+            and current - datetime.fromisoformat(old["attempted_at"]) < timedelta(days=1)
+        ):
             continue
         latest = old["latest"] if old else None
         succeeded = old["succeeded_at"] if old else None

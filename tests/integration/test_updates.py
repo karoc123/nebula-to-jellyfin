@@ -50,3 +50,39 @@ def test_update_attempt_survives_interruption(db, monkeypatch):
     # A repeated request would raise again; the persisted attempt suppresses it.
     updates.check(db, stamp + timedelta(hours=1))
     assert db.one("SELECT status FROM update_cache")["status"] == "unknown"
+
+
+def test_update_on_installed_version_change(db, monkeypatch):
+    calls = []
+    versions = {"application": "0.1.0", "yt-dlp": "2026.8.19"}
+    monkeypatch.setattr("app.updates.installed", lambda: versions)
+
+    def release(repo):
+        calls.append(repo)
+        return "0.2.0" if repo.startswith("karoc") else "2026.8.19"
+
+    monkeypatch.setattr("app.updates.fetch_release", release)
+    stamp = datetime(2026, 10, 18, tzinfo=UTC)
+    updates.check(db, stamp)
+    assert (
+        db.one("SELECT status FROM update_cache WHERE component='application'")["status"]
+        == "available"
+    )
+    assert len(calls) == 2
+
+    # Under 24h, same version -> skipped
+    updates.check(db, stamp + timedelta(hours=2))
+    assert len(calls) == 2
+
+    # Under 24h, but application updated -> triggers check immediately
+    versions["application"] = "0.2.0"
+    updates.check(db, stamp + timedelta(hours=3))
+    assert len(calls) == 3
+    assert (
+        db.one("SELECT status FROM update_cache WHERE component='application'")["status"]
+        == "current"
+    )
+
+    # Force check triggers both
+    updates.check(db, stamp + timedelta(hours=4), force=True)
+    assert len(calls) == 5

@@ -22,6 +22,7 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from packaging.version import Version
 
 from . import ingest, library, scheduler, updates, worker
 from .config import OPTION_TYPES, Config, validate_options, validate_schedule
@@ -437,10 +438,23 @@ def create_app(config: Config | None = None, *, start_workers: bool = True) -> F
                 name, {"component": name, "latest": None, "status": "unknown", "succeeded_at": None}
             )
             if record.get("installed") != version:
-                record["status"] = "unknown"
+                latest = record.get("latest")
+                if latest:
+                    try:
+                        is_newer = Version(latest) > Version(version)
+                        record["status"] = "available" if is_newer else "current"
+                    except Exception:
+                        record["status"] = "unknown"
+                else:
+                    record["status"] = "unknown"
             record["installed"] = version
             versions.append(record)
         return {"updates": versions, "paused": db.setting("paused")}
+
+    @application.post("/api/updates/check")
+    def check_updates(request: Request):
+        updates.check(database(request), force=True)
+        return {"ok": True}
 
     @application.get("/api/downloads")
     def downloads(
