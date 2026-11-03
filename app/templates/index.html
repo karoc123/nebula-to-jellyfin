@@ -2,7 +2,9 @@
 {% block content %}
 <div class="page-head"><h1>Downloads</h1>
 <button type="button" class="secondary" id="pause-button" data-queue="pause" {% if paused %}hidden{% endif %}>Pause downloads</button></div>
+<p class="hint">Pausing prevents the next download from starting; current work can finish.</p>
 {% include "_import.html" %}
+<section class="card active-download" aria-label="Current work"><h2>Current work</h2><div id="active-download">Loading current work…</div></section>
 <section class="card" id="downloads">
 <div class="toolbar">
 <div class="chips" role="group" aria-label="Status">
@@ -14,13 +16,13 @@
 {% for channel in channels %}<option value="{{ channel.id }}">{{ channel.name }}</option>{% endfor %}</select>
 <input type="search" id="search" placeholder="Search titles" aria-label="Search titles" maxlength="200">
 </div>
-<div class="toolbar bulk">
+<details class="action-menu"><summary>Bulk actions</summary><div class="toolbar bulk">
 <span class="hint" id="bulk-scope">Applies to all matching downloads, not only this page.</span>
 <button type="button" class="secondary" data-bulk="retry-errors">Retry failed</button>
 <button type="button" class="secondary" data-bulk="remove-errors">Remove failed</button>
 <button type="button" class="secondary" data-bulk="remove-done">Remove done</button>
 <button type="button" class="secondary" data-bulk="remove-queued">Remove queued</button>
-</div>
+</div><p class="hint">Removing finished downloads keeps library files intact.</p><p class="form-feedback" id="bulk-feedback" role="status"></p></details>
 <div class="table-scroll"><table class="stack"><thead><tr><th>Status</th><th>Video</th><th>Updated</th><th></th></tr></thead><tbody id="videos"></tbody></table></div>
 <div class="pager"><button type="button" class="secondary" id="previous">Previous</button><span id="page" class="hint"></span><button type="button" class="secondary" id="next">Next</button></div>
 </section>

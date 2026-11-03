@@ -351,3 +351,26 @@ def test_channel_pages_filter_catalog(client):
     overview = client.get("/channels").text
     assert "1 of 3 downloaded" in overview
     assert "1 failed" in overview
+
+
+def test_compact_workflow_markup_and_import_contract(client):
+    downloads = client.get("/").text
+    assert 'id="active-download"' in downloads
+    assert 'id="import-kind"' in downloads
+    assert 'id="import-latest"' in downloads
+    assert "<summary>Bulk actions</summary>" in downloads
+    assert 'id="channel-search"' in client.get("/channels").text
+    settings = client.get("/settings").text
+    assert settings.index('id="authentication"') < settings.index('action="/settings"')
+    assert "<summary>Advanced download options</summary>" in settings
+    assert 'id="log-status"' in client.get("/logs").text
+    response = client.post(
+        "/add",
+        data={
+            "urls": "https://nebula.tv/videos/one\nhttps://nebula.tv/videos/two",
+            "mode": "video",
+        },
+        follow_redirects=False,
+    )
+    assert response.headers["location"] == "/activity?queued=1"
+    assert len(client.get("/api/jobs").json()["jobs"]) == 2

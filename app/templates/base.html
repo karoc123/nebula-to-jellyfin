@@ -11,8 +11,16 @@
 </head>
 <body>
 {% set path = request.url.path %}
-<header><a class="brand" href="/">Nebula to Jellyfin</a>
-<nav>
+<header class="site-header"><a class="brand" href="/">Nebula <span>to Jellyfin</span></a>
+<details class="site-menu">
+<summary>Menu</summary>
+<nav aria-label="Main navigation">
+{% for href, label in [("/", "Downloads"), ("/channels", "Channels"), ("/activity", "Activity"), ("/settings", "Settings"), ("/logs", "Logs")] %}
+<a href="{{ href }}" {% if path == href or (href != "/" and path.startswith(href + "/")) %}aria-current="page"{% endif %}>{{ label }}</a>
+{% endfor %}
+</nav>
+</details>
+<nav class="desktop-nav" aria-label="Main navigation">
 {% for href, label in [("/", "Downloads"), ("/channels", "Channels"), ("/activity", "Activity"), ("/settings", "Settings"), ("/logs", "Logs")] %}
 <a href="{{ href }}" {% if path == href or (href != "/" and path.startswith(href + "/")) %}aria-current="page"{% endif %}>{{ label }}</a>
 {% endfor %}

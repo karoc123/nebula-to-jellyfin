@@ -43,6 +43,10 @@ function resultText(value) {
   return String(value);
 }
 function feedback(message) { document.getElementById("feedback").textContent = message; }
+function formFeedback(node, message, state = "neutral") {
+  node.dataset.state = state;
+  node.textContent = message;
+}
 async function action(url, body) {
   const response = await fetch(url, {method: "POST", body});
   if (!response.ok) {
@@ -73,6 +77,18 @@ function openDetails(container) {
   return new Set([...container.querySelectorAll("[data-id]")]
     .filter(node => node.querySelector("details[open]")).map(node => node.dataset.id));
 }
+function replaceRows(container, rows) {
+  const focused = document.activeElement;
+  const row = container.contains(focused) ? focused.closest("[data-id], [data-empty]") : null;
+  const label = focused?.textContent;
+  container.replaceChildren(...rows);
+  if (!row) return;
+  const replacement = [...container.children].find(node => node.dataset.id === row.dataset.id && node.dataset.empty === row.dataset.empty);
+  const control = replacement && [...replacement.querySelectorAll("button, summary, a")]
+    .find(node => node.textContent === label);
+  if (control) control.focus({preventScroll: true});
+  else { container.tabIndex = -1; container.focus({preventScroll: true}); }
+}
 function showPause(paused) {
   const banner = document.getElementById("pause-banner");
   banner.hidden = !paused;
@@ -91,6 +107,9 @@ const filters = {status: params.get("status") || "", channel: params.get("channe
 let offset = 0;
 let jobOffset = 0;
 let counts = {};
+let generation = 0;
+let refreshing = false;
+let refreshPending = false;
 
 function filterQuery() {
   const query = new URLSearchParams();
@@ -101,9 +120,9 @@ function videoRow(video, open) {
   const row = el("tr"); row.dataset.id = video.id;
   const status = el("td");
   status.append(badge(video.status));
-  if (video.status === "downloading") {
+  if (video.status === "downloading" && Number.isFinite(video.progress)) {
     const bar = el("progress"); bar.max = 100; bar.value = video.progress;
-    bar.title = `${video.progress}%`; status.append(bar);
+    bar.title = `${video.progress}%`; status.append(bar, el("span", ` ${video.progress}%`));
   }
   const title = el("td", undefined, "video");
   const meta = el("small", `${video.channel_name} · `);
@@ -114,15 +133,36 @@ function videoRow(video, open) {
   const actions = el("td", undefined, "row-actions");
   const id = encodeURIComponent(video.id);
   if (video.status === "error") actions.append(button("Retry", `/api/videos/${id}/retry`));
-  if (video.status === "error" || video.status === "done") actions.append(button("Remove", `/api/videos/${id}/remove`));
+  if (video.status === "error" || video.status === "done") {
+    const remove = button("Remove from list", `/api/videos/${id}/remove`);
+    remove.title = video.status === "done" ? "Library files are kept." : "Returns this video to the channel catalog.";
+    actions.append(remove);
+  }
   row.append(status, title, updated, actions);
   return row;
 }
-async function refreshDownloads() {
+async function refreshDownloads(version) {
   const query = filterQuery(); query.set("offset", offset);
-  const response = await fetch(`/api/downloads?${query}`, {cache: "no-store"});
+  const [response, currentResponse] = await Promise.all([
+    fetch(`/api/downloads?${query}`, {cache: "no-store"}),
+    fetch("/api/downloads?status=active&limit=1", {cache: "no-store"}),
+  ]);
   if (!response.ok) throw new Error("Could not load downloads");
-  const data = await response.json();
+  if (!currentResponse.ok) throw new Error("Could not load current work");
+  const [data, current] = await Promise.all([response.json(), currentResponse.json()]);
+  if (version !== generation) return;
+  const activeWork = current.videos.filter(video => video.status === "downloading" || video.status === "publishing");
+  const activeNode = document.getElementById("active-download");
+  activeNode.replaceChildren(...(activeWork.length ? activeWork.map(video => {
+    const item = el("div");
+    item.append(badge(video.status), el("strong", ` ${video.title}`), el("small", video.channel_name));
+    if (video.status === "downloading" && Number.isFinite(video.progress)) {
+      const bar = el("progress"); bar.max = 100; bar.value = video.progress;
+      bar.setAttribute("aria-label", `Download progress for ${video.title}`);
+      item.append(bar, el("span", `${video.progress}%`));
+    }
+    return item;
+  }) : [el("p", "No downloads currently in progress.", "hint")]));
   showPause(data.paused);
   counts = data.counts;
   const active = (counts.queued || 0) + (counts.downloading || 0) + (counts.publishing || 0);
@@ -141,11 +181,19 @@ async function refreshDownloads() {
   });
   const videos = document.getElementById("videos");
   const open = openDetails(videos);
-  videos.replaceChildren(...data.videos.map(video => videoRow(video, open)));
+  const rows = data.videos.map(video => videoRow(video, open));
   if (!data.videos.length) {
-    const row = el("tr"); const cell = el("td", "No downloads match these filters.", "hint"); cell.colSpan = 4;
-    row.append(cell); videos.append(row);
+    const row = el("tr"); const cell = el("td", undefined, "empty-state"); cell.colSpan = 4;
+    row.dataset.empty = "downloads";
+    if (filters.status || filters.channel || filters.q) {
+      cell.append("No downloads match these filters. ");
+      const reset = el("button", "Reset filters", "secondary"); reset.type = "button";
+      reset.addEventListener("click", () => { filters.status = ""; filters.channel = ""; filters.q = ""; document.getElementById("search").value = ""; document.getElementById("channel-filter").value = ""; applyFilters(); });
+      cell.append(reset);
+    } else { cell.append("The download queue is empty. "); const link = el("a", "Add downloads"); link.href = "#urls"; link.addEventListener("click", () => { document.querySelector(".import").open = true; }); cell.append(link); }
+    row.append(cell); rows.push(row);
   }
+  replaceRows(videos, rows);
   document.getElementById("page").textContent = data.total ? `${offset + 1}–${offset + data.videos.length} of ${data.total}` : "";
   document.getElementById("previous").disabled = offset === 0;
   document.getElementById("next").disabled = offset + data.videos.length >= data.total;
@@ -158,7 +206,7 @@ async function refreshJobs() {
   const data = await response.json();
   const jobs = document.getElementById("jobs");
   const open = openDetails(jobs);
-  jobs.replaceChildren(...data.jobs.map(job => {
+  replaceRows(jobs, data.jobs.map(job => {
     const row = el("tr"); row.dataset.id = String(job.id);
     const payload = JSON.parse(job.payload);
     const status = el("td"); status.append(badge(job.status));
@@ -186,26 +234,39 @@ async function refreshUpdates() {
   if (!response.ok) throw new Error("Could not load status");
   const data = await response.json();
   showPause(data.paused);
-  document.getElementById("updates").replaceChildren(...data.updates.map(item => {
+  const updates = document.getElementById("updates");
+  if (updates.contains(document.activeElement)) return;
+  const open = new Set([...updates.querySelectorAll("[data-component]")].filter(node => node.querySelector("details[open]")).map(node => node.dataset.component));
+  updates.replaceChildren(...data.updates.map(item => {
     const node = el("p", `${item.component}: installed ${item.installed}; latest ${item.latest || "unknown"}; ${item.status}. Last successful check: `, `update ${item.status}`);
     node.append(item.succeeded_at ? timeNode(item.succeeded_at) : "never", ".");
-    if (item.error) node.append(errorDetails(item.error)); return node;
+    node.dataset.component = item.component;
+    if (item.error) { const detail = errorDetails(item.error); detail.open = open.has(item.component); node.append(detail); } return node;
   }));
 }
 
 async function refresh() {
+  if (refreshing) { refreshPending = true; return; }
+  refreshing = true;
+  const version = generation;
   try {
-    if (document.getElementById("videos")) await refreshDownloads();
+    if (document.getElementById("videos")) await refreshDownloads(version);
     if (document.getElementById("jobs")) await refreshJobs();
     if (document.getElementById("updates")) await refreshUpdates();
   } catch (error) { feedback(error.message); }
+  finally {
+    refreshing = false;
+    if (refreshPending) { refreshPending = false; refresh(); }
+  }
 }
 
 document.querySelectorAll("[data-form]").forEach(form => form.addEventListener("submit", async event => {
   event.preventDefault();
   const submit = form.querySelector("button"); submit.disabled = true;
+  const target = form.querySelector(".form-feedback");
+  if (target) formFeedback(target, "");
   try { const response = await action(form.action, new FormData(form)); window.location.assign(response.url); }
-  catch (error) { feedback(error.message); submit.disabled = false; }
+  catch (error) { if (target) formFeedback(target, error.message, "error"); else feedback(error.message); submit.disabled = false; }
 }));
 document.querySelectorAll("[data-action]").forEach(node => node.addEventListener("click", async () => {
   const data = new FormData(); if (node.dataset.enabled) data.set("enabled", node.dataset.enabled);
@@ -231,9 +292,9 @@ document.querySelectorAll("[data-bulk]").forEach(node => node.addEventListener("
   node.disabled = true;
   try {
     const response = await action(`/api/downloads/${node.dataset.bulk}`, body);
-    feedback(`${(await response.json()).count} downloads updated.`);
+    formFeedback(document.getElementById("bulk-feedback"), `${(await response.json()).count} downloads updated.`, "success");
     offset = 0; await refresh();
-  } catch (error) { feedback(error.message); node.disabled = false; }
+  } catch (error) { formFeedback(document.getElementById("bulk-feedback"), error.message, "error"); node.disabled = false; }
 }));
 document.querySelectorAll("[data-clear]").forEach(node => node.addEventListener("click", async () => {
   const label = node.dataset.clear === "done" ? "finished" : "failed";
@@ -247,26 +308,69 @@ document.querySelectorAll("[data-clear]").forEach(node => node.addEventListener(
 const cookieButton = document.getElementById("test-cookie");
 if (cookieButton) cookieButton.addEventListener("click", async () => {
   const result = document.getElementById("cookie-result"); cookieButton.disabled = true;
+  formFeedback(result, "Starting cookie test…");
   try {
     const response = await action("/api/settings/test-cookie"); const job = await response.json();
-    result.textContent = `Cookie test queued (#${job.job_id}).`;
+    formFeedback(result, `Cookie test queued (#${job.job_id}).`);
     const poll = async () => {
       try {
         const response = await fetch(`/api/jobs/${job.job_id}`); const state = await response.json();
         if (state.status === "done" || state.status === "error") {
-          result.textContent = state.error || resultText(state.result); cookieButton.disabled = false;
+          formFeedback(result, state.error || resultText(state.result), state.status === "error" ? "error" : "success"); cookieButton.disabled = false;
         } else setTimeout(poll, 1500);
-      } catch (error) { result.textContent = error.message; cookieButton.disabled = false; }
+      } catch (error) { formFeedback(result, error.message, "error"); cookieButton.disabled = false; }
     }; setTimeout(poll, 1000);
-  } catch (error) { result.textContent = error.message; cookieButton.disabled = false; }
+  } catch (error) { formFeedback(result, error.message, "error"); cookieButton.disabled = false; }
 });
 const selectAll = document.getElementById("select-all");
-if (selectAll) selectAll.addEventListener("change", () => {
-  document.querySelectorAll('input[name="videos"]:not(:disabled)').forEach(box => { box.checked = selectAll.checked; });
-});
+if (selectAll) {
+  const boxes = [...document.querySelectorAll('input[name="videos"]:not(:disabled)')];
+  const updateSelection = () => {
+    const count = boxes.filter(box => box.checked).length;
+    selectAll.checked = boxes.length > 0 && count === boxes.length;
+    selectAll.indeterminate = count > 0 && count < boxes.length;
+    selectAll.disabled = boxes.length === 0;
+    document.getElementById("selection-summary").textContent = `${count} selected`;
+    document.getElementById("download-selected").disabled = count === 0;
+  };
+  selectAll.addEventListener("change", () => { boxes.forEach(box => { box.checked = selectAll.checked; }); updateSelection(); });
+  boxes.forEach(box => box.addEventListener("change", updateSelection));
+  updateSelection();
+}
+const kind = document.getElementById("import-kind");
+if (kind) {
+  const mode = document.getElementById("import-mode");
+  const updateImport = () => {
+    const channel = kind.value === "channel";
+    if (channel && mode.value === "video") mode.value = "future";
+    if (!channel) mode.value = "video";
+    mode.querySelector('[value="video"]').hidden = channel;
+    document.getElementById("import-mode-label").hidden = !channel;
+    document.getElementById("import-subscription").hidden = !channel;
+    document.getElementById("import-subscription").querySelector("input").disabled = !channel;
+    const latest = document.getElementById("import-latest");
+    latest.hidden = !channel || mode.value !== "latest";
+    latest.querySelector("input").disabled = latest.hidden;
+  };
+  kind.addEventListener("change", updateImport); mode.addEventListener("change", updateImport); updateImport();
+}
+const channelSearch = document.getElementById("channel-search");
+if (channelSearch) {
+  const subscription = document.getElementById("channel-subscription"), errors = document.getElementById("channel-errors");
+  const cards = [...document.querySelectorAll(".channel-card")];
+  const filterChannels = () => {
+    cards.forEach(card => { card.hidden = !card.dataset.name.toLocaleLowerCase().includes(channelSearch.value.trim().toLocaleLowerCase()) || (subscription.value && card.dataset.subscribed !== subscription.value) || (errors.value && card.dataset.errors !== errors.value); });
+    document.getElementById("channel-empty").hidden = !cards.length || cards.some(card => !card.hidden);
+  };
+  [channelSearch, subscription, errors].forEach(node => node.addEventListener("input", filterChannels));
+  document.getElementById("channel-reset").addEventListener("click", () => { channelSearch.value = subscription.value = errors.value = ""; filterChannels(); });
+}
+let applyFilters;
 if (document.getElementById("videos")) {
   // Filters live in the URL so a reload or shared link keeps them.
-  const applyFilters = () => {
+  applyFilters = () => {
+    generation++;
+    document.querySelectorAll("[data-bulk]").forEach(node => { node.disabled = true; });
     offset = 0;
     const query = filterQuery().toString();
     window.history.replaceState(null, "", query ? `?${query}` : window.location.pathname);
@@ -279,9 +383,9 @@ if (document.getElementById("videos")) {
   const search = document.getElementById("search");
   search.value = filters.q;
   let typing;
-  search.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(() => { filters.q = search.value.trim(); applyFilters(); }, 300); });
-  document.getElementById("previous").onclick = () => { offset = Math.max(0, offset - PAGE); refresh(); };
-  document.getElementById("next").onclick = () => { offset += PAGE; refresh(); };
+  search.addEventListener("input", () => { generation++; clearTimeout(typing); typing = setTimeout(() => { filters.q = search.value.trim(); applyFilters(); }, 300); });
+  document.getElementById("previous").onclick = () => { offset = Math.max(0, offset - PAGE); generation++; refresh(); };
+  document.getElementById("next").onclick = () => { offset += PAGE; generation++; refresh(); };
 }
 if (document.getElementById("jobs")) {
   document.getElementById("jobs-previous").onclick = () => { jobOffset = Math.max(0, jobOffset - JOB_PAGE); refresh(); };

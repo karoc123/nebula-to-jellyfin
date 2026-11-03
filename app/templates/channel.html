@@ -27,7 +27,7 @@ Subscription: {{ 'enabled' if channel.subscribed else 'disabled' }}.</p>
 </div>
 <form method="post" action="/channels/{{ channel.id }}/select" data-form>
 <div class="toolbar bulk"><label class="inline"><input type="checkbox" id="select-all"> Select all available on this page</label>
-<button>Download selected videos</button></div>
+<span class="selection-summary" id="selection-summary" aria-live="polite">0 selected</span><button id="download-selected" disabled>Download selected videos</button></div>
 <p class="hint">Failed videos are retried from Downloads.</p>
 <div class="catalog">
 {% for video in videos %}
@@ -35,8 +35,8 @@ Subscription: {{ 'enabled' if channel.subscribed else 'disabled' }}.</p>
 <span><span>{{ video.title }}</span>
 <small>{% if video.published_at %}<time data-date datetime="{{ video.published_at }}">{{ video.published_at[:10] }}</time>{% else %}Publication date loads before download{% endif %}</small></span>
 {% if video.status != 'available' %}<span class="badge {{ video.status }}">{{ video.status }}</span>{% endif %}</label>
-{% else %}<p class="hint">No videos match.</p>{% endfor %}
-</div></form>
+{% else %}<p class="empty-state">No videos match. <a href="?">Reset filters</a></p>{% endfor %}
+</div><p class="form-feedback" role="status"></p></form>
 <div class="pager">
 {% if offset %}<a href="?status={{ status }}&amp;q={{ q | urlencode }}&amp;offset={{ [offset - 100, 0] | max }}">Previous</a>{% endif %}
 {% if videos %}<span class="hint">Videos {{ offset + 1 }}–{{ offset + videos | length }}</span>{% endif %}

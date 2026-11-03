@@ -4,9 +4,14 @@
 <button type="button" data-action="/api/check">Check subscriptions now</button></div>
 <p class="hint">Next scheduled check: <time data-time data-tz="{{ schedule.timezone }}" datetime="{{ next_check }}">{{ next_check }}</time> ({{ schedule.timezone }}). Change the time in <a href="/settings">Settings</a>.</p>
 {% set import_mode = "future" %}{% include "_import.html" %}
+<div class="channel-filters field-grid">
+<label>Search channels <input type="search" id="channel-search"></label>
+<label>Subscription <select id="channel-subscription"><option value="">All</option><option value="true">Subscribed</option><option value="false">Not subscribed</option></select></label>
+<label>Errors <select id="channel-errors"><option value="">All</option><option value="true">With errors</option><option value="false">Without errors</option></select></label>
+</div><p id="channel-empty" class="empty-state" hidden>No channels match. <button type="button" class="secondary" id="channel-reset">Reset filters</button></p>
 <div class="channel-grid">
 {% for channel in channels %}
-<article class="card channel-card">
+<article class="card channel-card" data-name="{{ channel.name }}" data-subscribed="{{ 'true' if channel.subscribed else 'false' }}" data-errors="{{ 'true' if channel.failed or channel.last_error else 'false' }}">
 <a class="channel-head" href="/channels/{{ channel.id }}">
 {% if channel.image_url %}<img src="{{ channel.image_url }}" alt="" loading="lazy">{% else %}<span class="avatar"></span>{% endif %}
 <span><strong>{{ channel.name }}</strong><span class="hint">{{ channel.done }} of {{ channel.total }} downloaded</span></span></a>
