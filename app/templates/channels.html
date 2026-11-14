@@ -1,35 +1,50 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="page-head"><h1>Channels</h1>
-<button type="button" data-action="/api/check">Check subscriptions now</button></div>
-<p class="hint">Next scheduled check: <time data-time data-tz="{{ schedule.timezone }}" datetime="{{ next_check }}">{{ next_check }}</time> ({{ schedule.timezone }}). Change the time in <a href="/settings">Settings</a>.</p>
+<div class="head"><div><h1>Channels</h1>
+<p class="sub">Next check <time data-time data-tz="{{ schedule.timezone }}" datetime="{{ next_check }}">{{ next_check }}</time> {{ schedule.timezone }} · <a href="/settings">Change</a></p></div>
+<div class="acts">
+<button type="button" data-action="/api/check">Check subscriptions now</button>
+<button type="button" class="primary" data-import-open="channel">Add channel</button>
+</div></div>
 {% set import_mode = "future" %}{% include "_import.html" %}
-<div class="channel-filters field-grid">
-<label>Search channels <input type="search" id="channel-search"></label>
-<label>Subscription <select id="channel-subscription"><option value="">All</option><option value="true">Subscribed</option><option value="false">Not subscribed</option></select></label>
-<label>Errors <select id="channel-errors"><option value="">All</option><option value="true">With errors</option><option value="false">Without errors</option></select></label>
-</div><p id="channel-empty" class="empty-state" hidden>No channels match. <button type="button" class="secondary" id="channel-reset">Reset filters</button></p>
-<div class="channel-grid">
+<div class="tools" {% if not channels %}hidden{% endif %}>
+<div class="tabs" role="group" aria-label="Subscription" id="channel-subscription">
+{% set subscribed = channels | selectattr('subscribed') | list | length %}
+{% for value, label, n in [("", "All", channels | length), ("true", "Subscribed", subscribed), ("false", "Not subscribed", (channels | length) - subscribed)] %}
+<button type="button" data-value="{{ value }}" aria-pressed="{{ 'true' if not value else 'false' }}">{{ label }}<span class="count">{{ n }}</span></button>
+{% endfor %}
+</div>
+<div class="filters">
+<select id="channel-errors" aria-label="Errors"><option value="">With and without errors</option><option value="true">With errors</option><option value="false">Without errors</option></select>
+<input type="search" id="channel-search" placeholder="Search channels" aria-label="Search channels">
+</div>
+</div>
+<p id="channel-empty" class="empty-line" hidden>No channels match. <button type="button" id="channel-reset">Reset filters</button></p>
+<div class="grid">
 {% for channel in channels %}
-<article class="card channel-card" data-name="{{ channel.name }}" data-subscribed="{{ 'true' if channel.subscribed else 'false' }}" data-errors="{{ 'true' if channel.failed or channel.last_error else 'false' }}">
-<a class="channel-head" href="/channels/{{ channel.id }}">
-{% if channel.image_url %}<img src="{{ channel.image_url }}" alt="" loading="lazy">{% else %}<span class="avatar"></span>{% endif %}
-<span><strong>{{ channel.name }}</strong><span class="hint">{{ channel.done }} of {{ channel.total }} downloaded</span></span></a>
+<article class="channel-card" data-name="{{ channel.name }}" data-subscribed="{{ 'true' if channel.subscribed else 'false' }}" data-errors="{{ 'true' if channel.failed or channel.last_error else 'false' }}">
+<div class="art" {% if channel.banner_url %}style="background-image: url('{{ channel.banner_url }}')"{% endif %}></div>
+<div class="card-body">
+{% if channel.image_url %}<img class="avatar" src="{{ channel.image_url }}" alt="" loading="lazy" referrerpolicy="no-referrer">{% else %}<span class="avatar"></span>{% endif %}
+<div><h2><a href="/channels/{{ channel.id }}">{{ channel.name }}</a></h2><p class="meta">{{ channel.done }} of {{ channel.total }} downloaded</p></div>
 <div class="meter"><span style="width: {{ (100 * channel.done / channel.total) | round | int if channel.total else 0 }}%"></span></div>
-<p class="stats">
-<span class="badge {{ 'done' if channel.subscribed else '' }}">{{ 'Subscribed' if channel.subscribed else 'Not subscribed' }}</span>
-{% if channel.active %}<span class="badge downloading">{{ channel.active }} active</span>{% endif %}
-{% if channel.failed %}<a class="badge error" href="/?status=error&amp;channel={{ channel.id }}">{{ channel.failed }} failed</a>{% endif %}
-</p>
-<p class="hint">Last checked: {% if channel.last_checked_at %}<time data-time datetime="{{ channel.last_checked_at }}">{{ channel.last_checked_at }}</time>{% else %}never{% endif %}</p>
-{% if channel.last_error %}<details><summary>Last check failed</summary><p>{{ channel.last_error }}</p></details>{% endif %}
-<div class="form-actions">
-<button type="button" class="secondary" data-action="/api/channels/{{ channel.id }}/subscription" data-enabled="{{ 'false' if channel.subscribed else 'true' }}">{{ 'Unsubscribe' if channel.subscribed else 'Subscribe' }}</button>
-<button type="button" class="secondary" data-action="/api/channels/{{ channel.id }}/check">Check now</button>
+<div class="row">
+<span class="state {{ 'ok' if channel.subscribed else 'wait' }}"><i></i>{{ 'Subscribed' if channel.subscribed else 'Not subscribed' }}</span>
+{% if channel.active %}<span class="state run"><i></i>{{ channel.active }} active</span>{% endif %}
+{% if channel.failed %}<a class="state err" href="/?status=error&amp;channel={{ channel.id }}"><i></i>{{ channel.failed }} failed</a>{% endif %}
+</div>
+{% if channel.last_error %}<details class="err"><summary>Last check failed</summary><pre>{{ channel.last_error }}</pre></details>{% endif %}
+<div class="card-foot">
+<span class="when" title="Last checked">{% if channel.last_checked_at %}<time data-time datetime="{{ channel.last_checked_at }}">{{ channel.last_checked_at }}</time>{% else %}Never checked{% endif %}</span>
+<span class="acts">
+<button type="button" class="quiet" data-action="/api/channels/{{ channel.id }}/subscription" data-enabled="{{ 'false' if channel.subscribed else 'true' }}">{{ 'Unsubscribe' if channel.subscribed else 'Subscribe' }}</button>
+<button type="button" class="quiet" data-action="/api/channels/{{ channel.id }}/check">Check now</button>
+</span>
+</div>
 </div>
 </article>
 {% else %}
-<p class="hint">No channels imported yet. Paste a channel URL above.</p>
+<p class="empty-line">No channels imported yet. <button type="button" class="primary" data-import-open="channel">Add channel</button></p>
 {% endfor %}
 </div>
 {% endblock %}

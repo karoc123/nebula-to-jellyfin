@@ -1,46 +1,54 @@
 {% extends "base.html" %}
 {% block content %}
-<p class="crumbs"><a href="/channels">Channels</a> /</p>
-<section class="card channel-hero" {% if channel.banner_url %}style="--banner: url('{{ channel.banner_url }}')"{% endif %}>
-<div class="channel-head">
-{% if channel.image_url %}<img src="{{ channel.image_url }}" alt="">{% endif %}
-<h1>{{ channel.name }}</h1></div>
-{% if channel.description %}<p>{{ channel.description }}</p>{% endif %}
-<p class="hint">Last checked: {% if channel.last_checked_at %}<time data-time datetime="{{ channel.last_checked_at }}">{{ channel.last_checked_at }}</time>{% else %}never{% endif %}.
-Subscription: {{ 'enabled' if channel.subscribed else 'disabled' }}.</p>
-{% if channel.last_error %}<details open><summary>Last check failed</summary><p>{{ channel.last_error }}</p></details>{% endif %}
-<div class="form-actions">
-<button type="button" data-action="/api/channels/{{ channel.id }}/subscription" data-enabled="{{ 'false' if channel.subscribed else 'true' }}">{{ 'Unsubscribe' if channel.subscribed else 'Subscribe: future uploads' }}</button>
-<button type="button" class="secondary" data-action="/api/channels/{{ channel.id }}/check">Refresh catalog and check new uploads</button>
-<a href="/?channel={{ channel.id }}">Show downloads</a>
-</div></section>
-<section class="card"><h2>Catalog</h2>
-<div class="toolbar">
-<div class="chips" role="group" aria-label="Status">
+{% set done = counts.get('done', 0) %}{% set total = counts.values() | sum %}
+<p class="crumbs"><a href="/channels">Channels</a> / {{ channel.name }}</p>
+<section class="hero">
+<div class="art" {% if channel.banner_url %}style="background-image: url('{{ channel.banner_url }}')"{% endif %}></div>
+<div class="hero-body">
+{% if channel.image_url %}<img class="avatar" src="{{ channel.image_url }}" alt="" referrerpolicy="no-referrer">{% else %}<span class="avatar"></span>{% endif %}
+<div class="hero-text"><h1>{{ channel.name }}</h1>
+{% if channel.description %}<p class="sub">{{ channel.description }}</p>{% endif %}
+<p class="meta">{{ done }} of {{ total }} downloaded · {{ 'Subscribed to future uploads' if channel.subscribed else 'Not subscribed' }} · last checked {% if channel.last_checked_at %}<time data-time datetime="{{ channel.last_checked_at }}">{{ channel.last_checked_at }}</time>{% else %}never{% endif %}</p></div>
+<div class="acts">
+<button type="button" {% if not channel.subscribed %}class="primary"{% endif %} data-action="/api/channels/{{ channel.id }}/subscription" data-enabled="{{ 'false' if channel.subscribed else 'true' }}">{{ 'Unsubscribe' if channel.subscribed else 'Subscribe: future uploads' }}</button>
+<button type="button" data-action="/api/channels/{{ channel.id }}/check" title="Refresh the catalog and check for new uploads">Check now</button>
+<a class="btn quiet" href="/?channel={{ channel.id }}">Show downloads</a>
+</div></div>
+{% if channel.last_error %}<details class="err" open><summary>Last check failed</summary><pre>{{ channel.last_error }}</pre></details>{% endif %}
+</section>
+<div class="tools">
+<div class="tabs" role="group" aria-label="Status">
 {% for value, label in [("", "All"), ("available", "Not downloaded"), ("active", "Active"), ("done", "Done"), ("error", "Failed")] %}
-{% set n = counts.values() | sum if not value else (counts.get('queued', 0) + counts.get('downloading', 0) + counts.get('publishing', 0) if value == 'active' else counts.get(value, 0)) %}
-<a class="chip" href="?status={{ value }}&amp;q={{ q | urlencode }}" {% if status == value %}aria-current="true"{% endif %}>{{ label }} <span class="count">{{ n }}</span></a>
+{% set n = total if not value else (counts.get('queued', 0) + counts.get('downloading', 0) + counts.get('publishing', 0) if value == 'active' else counts.get(value, 0)) %}
+<a href="?status={{ value }}&amp;q={{ q | urlencode }}" {% if status == value %}aria-current="true"{% endif %}>{{ label }}<span class="count">{{ n }}</span></a>
 {% endfor %}
 </div>
-<form method="get"><input type="hidden" name="status" value="{{ status }}">
-<input type="search" name="q" value="{{ q }}" placeholder="Search titles" aria-label="Search titles" maxlength="200"></form>
+<div class="filters"><form method="get"><input type="hidden" name="status" value="{{ status }}">
+<input type="search" name="q" value="{{ q }}" placeholder="Search titles" aria-label="Search titles" maxlength="200"></form></div>
 </div>
 <form method="post" action="/channels/{{ channel.id }}/select" data-form>
-<div class="toolbar bulk"><label class="inline"><input type="checkbox" id="select-all"> Select all available on this page</label>
-<span class="selection-summary" id="selection-summary" aria-live="polite">0 selected</span><button id="download-selected" disabled>Download selected videos</button></div>
-<p class="hint">Failed videos are retried from Downloads.</p>
-<div class="catalog">
+<ul class="rows pick">
 {% for video in videos %}
-<label class="catalog-item"><input type="checkbox" name="videos" value="{{ video.id }}" {% if video.status != 'available' %}disabled{% endif %}>
-<span><span>{{ video.title }}</span>
-<small>{% if video.published_at %}<time data-date datetime="{{ video.published_at }}">{{ video.published_at[:10] }}</time>{% else %}Publication date loads before download{% endif %}</small></span>
-{% if video.status != 'available' %}<span class="badge {{ video.status }}">{{ video.status }}</span>{% endif %}</label>
-{% else %}<p class="empty-state">No videos match. <a href="?">Reset filters</a></p>{% endfor %}
-</div><p class="form-feedback" role="status"></p></form>
+{% set state = {'queued': ('wait', 'Queued'), 'downloading': ('run', 'Downloading'), 'publishing': ('run', 'Publishing'), 'done': ('ok', 'Done'), 'error': ('err', 'Failed')}.get(video.status) %}
+<li><input type="checkbox" name="videos" value="{{ video.id }}" aria-label="Select {{ video.title }}" {% if video.status != 'available' %}disabled{% endif %}>
+<span class="thumb">{% if video.thumb_url %}<img src="{{ video.thumb_url }}" alt="" loading="lazy" referrerpolicy="no-referrer">{% endif %}{% if video.duration %}<span>{{ '%d:%02d:%02d' % (video.duration // 3600, video.duration % 3600 // 60, video.duration % 60) if video.duration >= 3600 else '%d:%02d' % (video.duration // 60, video.duration % 60) }}</span>{% endif %}</span>
+<div class="what"><p class="title">{{ video.title }}</p>{% if video.status == 'error' %}<p class="meta">Retry failed videos from <a href="/?status=error&amp;channel={{ channel.id }}">Downloads</a>.</p>{% endif %}</div>
+<div class="foot">{% if state %}<span class="state {{ state[0] }}"><i></i>{{ state[1] }}</span>{% else %}<span></span>{% endif %}
+<span class="when">{% if video.published_at %}<time data-date datetime="{{ video.published_at }}">{{ video.published_at[:10] }}</time>{% else %}Date pending{% endif %}</span></div></li>
+{% else %}<li class="empty">No videos match. <a href="?">Reset filters</a></li>{% endfor %}
+</ul>
 <div class="pager">
-{% if offset %}<a href="?status={{ status }}&amp;q={{ q | urlencode }}&amp;offset={{ [offset - 100, 0] | max }}">Previous</a>{% endif %}
-{% if videos %}<span class="hint">Videos {{ offset + 1 }}–{{ offset + videos | length }}</span>{% endif %}
-{% if videos | length == 100 %}<a href="?status={{ status }}&amp;q={{ q | urlencode }}&amp;offset={{ offset + 100 }}">Next</a>{% endif %}
+<span class="mono">{% if videos %}{{ offset + 1 }}–{{ offset + videos | length }}{% endif %}</span>
+<span class="acts">
+{% if offset %}<a class="btn" href="?status={{ status }}&amp;q={{ q | urlencode }}&amp;offset={{ [offset - 100, 0] | max }}">Previous</a>{% endif %}
+{% if videos | length == 100 %}<a class="btn" href="?status={{ status }}&amp;q={{ q | urlencode }}&amp;offset={{ offset + 100 }}">Next</a>{% endif %}
+</span></div>
+<div class="selbar">
+<label class="check"><input type="checkbox" id="select-all"> Select all available on this page</label>
+<span class="grow"></span>
+<p class="form-feedback" role="status"></p>
+<span class="selection-summary" id="selection-summary" aria-live="polite">0 selected</span>
+<button type="submit" class="primary" id="download-selected" disabled>Download selected</button>
 </div>
-</section>
+</form>
 {% endblock %}

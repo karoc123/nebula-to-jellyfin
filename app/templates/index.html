@@ -1,29 +1,34 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="page-head"><h1>Downloads</h1>
-<button type="button" class="secondary" id="pause-button" data-queue="pause" {% if paused %}hidden{% endif %}>Pause downloads</button></div>
-<p class="hint">Pausing prevents the next download from starting; current work can finish.</p>
+<div class="head"><div><h1>Downloads</h1><p class="sub" id="summary"></p></div>
+<div class="acts">
+<button type="button" id="pause-button" data-queue="pause" title="Current work can finish; nothing new starts." {% if paused %}hidden{% endif %}>Pause downloads</button>
+<button type="button" class="primary" data-import-open="video">Add downloads</button>
+</div></div>
 {% include "_import.html" %}
-<section class="card active-download" aria-label="Current work"><h2>Current work</h2><div id="active-download">Loading current work…</div></section>
-<section class="card" id="downloads">
-<div class="toolbar">
-<div class="chips" role="group" aria-label="Status">
+<section class="now" id="active-download" aria-label="Current work"><p class="hint">Loading current work…</p></section>
+<section id="downloads">
+<div class="tools">
+<div class="tabs" role="group" aria-label="Status">
 {% for value, label in [("", "All"), ("active", "Active"), ("done", "Done"), ("error", "Failed")] %}
-<button type="button" class="chip" data-status="{{ value }}">{{ label }} <span class="count" data-count="{{ value }}"></span></button>
+<button type="button" data-status="{{ value }}">{{ label }}<span class="count" data-count="{{ value }}"></span></button>
 {% endfor %}
 </div>
+<div class="filters">
 <select id="channel-filter" aria-label="Channel"><option value="">All channels</option>
 {% for channel in channels %}<option value="{{ channel.id }}">{{ channel.name }}</option>{% endfor %}</select>
 <input type="search" id="search" placeholder="Search titles" aria-label="Search titles" maxlength="200">
+<details class="menu"><summary>Bulk actions</summary><div class="pop">
+<button type="button" data-bulk="retry-errors">Retry failed <span></span></button>
+<button type="button" data-bulk="remove-errors">Remove failed <span></span></button>
+<button type="button" data-bulk="remove-done">Remove done <span></span></button>
+<button type="button" data-bulk="remove-queued">Remove queued <span></span></button>
+<p>Applies to every download matching the current channel and search, not only this page. Removing finished downloads keeps library files.</p>
+<p class="form-feedback" id="bulk-feedback" role="status"></p>
+</div></details>
 </div>
-<details class="action-menu"><summary>Bulk actions</summary><div class="toolbar bulk">
-<span class="hint" id="bulk-scope">Applies to all matching downloads, not only this page.</span>
-<button type="button" class="secondary" data-bulk="retry-errors">Retry failed</button>
-<button type="button" class="secondary" data-bulk="remove-errors">Remove failed</button>
-<button type="button" class="secondary" data-bulk="remove-done">Remove done</button>
-<button type="button" class="secondary" data-bulk="remove-queued">Remove queued</button>
-</div><p class="hint">Removing finished downloads keeps library files intact.</p><p class="form-feedback" id="bulk-feedback" role="status"></p></details>
-<div class="table-scroll"><table class="stack"><thead><tr><th>Status</th><th>Video</th><th>Updated</th><th></th></tr></thead><tbody id="videos"></tbody></table></div>
-<div class="pager"><button type="button" class="secondary" id="previous">Previous</button><span id="page" class="hint"></span><button type="button" class="secondary" id="next">Next</button></div>
+</div>
+<ul class="rows" id="videos"></ul>
+<div class="pager"><span id="page" class="mono"></span><span class="acts"><button type="button" id="previous">Previous</button><button type="button" id="next">Next</button></span></div>
 </section>
 {% endblock %}

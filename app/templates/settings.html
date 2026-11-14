@@ -1,28 +1,46 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="page-head"><h1>Settings</h1></div>
+<div class="head"><h1>Settings</h1></div>
 {% if request.query_params.get('saved') %}<p class="notice">Settings saved.</p>{% endif %}
-<section class="card" id="authentication"><h2>Nebula authentication</h2>
-<p>Status: <span id="cookie-status" class="badge {{ 'done' if cookies_saved else 'error' }}">{{ 'Cookie file saved' if cookies_saved else 'No cookie file saved' }}</span></p>
-<p class="hint">A saved cookie file does not prove the cookies are still valid. Use Test saved cookies to verify the cookies and your active Nebula subscription.</p>
-<form method="post" action="/settings/cookies" enctype="multipart/form-data" data-form>
-<label>Netscape cookie file <input type="file" name="file" accept=".txt"></label>
-<label for="cookies">Or paste exported cookie content</label>
-<textarea id="cookies" name="cookies" rows="5" spellcheck="false" placeholder="# Netscape HTTP Cookie File"></textarea>
-<p class="hint">An empty submission removes the saved cookie file. The previous file is backed up locally.</p>
-<div class="form-actions"><button>Import cookies</button><button type="button" id="test-cookie">Test saved cookies</button></div>
-<p id="cookie-result" class="form-feedback" role="status"></p><p class="form-feedback" role="status"></p></form></section>
-<section class="card"><h2>Download options and daily checks</h2>
+<section class="set" id="authentication">
+<div><h2>Nebula authentication</h2><p>A saved cookie file does not prove the cookies are still valid. Test them to verify the cookies and your active Nebula subscription.</p></div>
+<div class="stack">
+<div class="row"><span id="cookie-status" class="state {{ 'wait' if cookies_saved else 'err' }}"><i></i>{{ 'Cookie file saved, not verified' if cookies_saved else 'No cookie file saved' }}</span>
+<span class="grow"></span><button type="button" id="test-cookie">Test saved cookies</button></div>
+<p id="cookie-result" class="form-feedback" role="status"></p>
+<form class="stack" method="post" action="/settings/cookies" enctype="multipart/form-data" data-form>
+<div class="drop"><label for="cookie-file">Netscape cookie file</label><input id="cookie-file" type="file" name="file" accept=".txt"></div>
+<div><label for="cookies">Or paste exported cookie content</label>
+<textarea id="cookies" name="cookies" rows="4" spellcheck="false" placeholder="# Netscape HTTP Cookie File"></textarea></div>
+<div class="row"><button type="submit" class="primary">Import cookies</button><span class="meta">An empty submission removes the saved file. The previous file is backed up locally.</span></div>
+<p class="form-feedback" role="status"></p>
+</form>
+</div>
+</section>
 <form method="post" action="/settings" data-form>
-<div class="field-grid"><label>Daily time <input name="at" type="time" value="{{ schedule.time }}" required></label>
+<section class="set">
+<div><h2>Daily check</h2><p>Subscribed channels are checked for new uploads once a day.</p></div>
+<div class="pair"><label>Time <input name="at" type="time" value="{{ schedule.time }}" required></label>
 <label>Timezone <input name="timezone" value="{{ schedule.timezone }}" required></label></div>
-<details><summary>Advanced download options</summary><label for="options">Global yt-dlp Python options (JSON)</label>
+</section>
+<section class="set">
+<div><h2>Download options</h2><p>Defaults prefer HEVC up to 1080p, English and German subtitles and no video re-encoding. Paths stay under application control.</p></div>
+<div class="stack">
+<details class="more"><summary>Advanced download options</summary>
+<label for="options">Global yt-dlp Python options (JSON)</label>
 <textarea id="options" name="options" rows="7" spellcheck="false">{{ options }}</textarea>
-<p class="hint">Defaults: prefer HEVC up to 1080p, English and German subtitles, no video re-encoding. Options apply to the next download and manual retries. Paths remain controlled by the application.</p>
-<details><summary>Supported options</summary><p>{{ supported }}</p><p>Merge containers: mp4, mkv, webm or mov; separate alternatives with /.</p><p>Example: <code>{"subtitleslangs": ["en.*", "de.*"], "ratelimit": 5000000}</code></p></details>
-</details><button>Save settings</button><p class="form-feedback" role="status"></p>
-</form></section>
-<section class="card"><h2>Versions and updates</h2><div id="updates"></div>
-<button type="button" class="secondary" data-action="/api/updates/check">Check for updates now</button>
-<p class="hint">Checks run in the background at most daily. Install updates by pulling a new container image. An upstream yt-dlp update may precede an application image containing it.</p></section>
+<p>Options apply to the next download and manual retries.</p>
+<p>Supported options: {{ supported }}</p>
+<p>Merge containers: mp4, mkv, webm or mov; separate alternatives with /.</p>
+<p>Example: <code>{"subtitleslangs": ["en.*", "de.*"], "ratelimit": 5000000}</code></p>
+</details>
+<div class="row"><button type="submit" class="primary">Save settings</button><p class="form-feedback" role="status"></p></div>
+</div>
+</section>
+</form>
+<section class="set">
+<div><h2>Versions and updates</h2><p>Checks run in the background at most daily. Install updates by pulling a new container image. An upstream yt-dlp update may precede an application image containing it.</p></div>
+<div class="stack"><div class="scroll" id="updates"></div>
+<div class="row"><button type="button" data-action="/api/updates/check">Check for updates now</button></div></div>
+</section>
 {% endblock %}

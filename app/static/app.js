@@ -55,7 +55,7 @@ async function action(url, body) {
   }
   return response;
 }
-function button(text, url, className = "secondary") {
+function button(text, url, className = "") {
   const node = el("button", text, className);
   node.type = "button";
   node.addEventListener("click", async () => {
@@ -66,12 +66,39 @@ function button(text, url, className = "secondary") {
   });
   return node;
 }
-function errorDetails(message, summary = "Error details") {
-  const node = el("details");
-  node.append(el("summary", summary), el("p", message));
+// The first line of an error is visible; the full text opens on demand.
+function errorDetails(message) {
+  const node = el("details", undefined, "err");
+  node.append(el("summary", message.split("\n").find(line => line.trim()) || "Error"), el("pre", message));
   return node;
 }
-function badge(status, text = status) { return el("span", text, `badge ${status}`); }
+const STATES = {
+  queued: ["wait", "Queued"], downloading: ["run", "Downloading"], publishing: ["run", "Publishing"],
+  running: ["run", "Running"], done: ["ok", "Done"], error: ["err", "Failed"],
+};
+// Status is shown as a coloured dot and a word.
+function stateNode(status, text) {
+  const [tone, label] = STATES[status] || ["wait", status];
+  const node = el("span", undefined, `state ${tone}`);
+  node.append(el("i"), text ?? label);
+  return node;
+}
+function duration(seconds) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "";
+  const s = Math.round(seconds), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), r = String(s % 60).padStart(2, "0");
+  return h ? `${h}:${String(m).padStart(2, "0")}:${r}` : `${m}:${r}`;
+}
+function thumbNode(video) {
+  const node = el("span", undefined, "thumb");
+  if (video.thumb_url) {
+    const img = el("img"); img.src = video.thumb_url; img.alt = ""; img.loading = "lazy"; img.referrerPolicy = "no-referrer";
+    img.addEventListener("error", () => img.remove());
+    node.append(img);
+  }
+  const length = duration(video.duration);
+  if (length) node.append(el("span", length));
+  return node;
+}
 // Keep error details open across polls; rows are rebuilt on every refresh.
 function openDetails(container) {
   return new Set([...container.querySelectorAll("[data-id]")]
@@ -116,30 +143,54 @@ function filterQuery() {
   for (const [key, value] of Object.entries(filters)) if (value) query.set(key, value);
   return query;
 }
+const REMOVE_ICON = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M3 3l8 8M11 3l-8 8"/></svg>';
 function videoRow(video, open) {
-  const row = el("tr"); row.dataset.id = video.id;
-  const status = el("td");
-  status.append(badge(video.status));
-  if (video.status === "downloading" && Number.isFinite(video.progress)) {
-    const bar = el("progress"); bar.max = 100; bar.value = video.progress;
-    bar.title = `${video.progress}%`; status.append(bar, el("span", ` ${video.progress}%`));
-  }
-  const title = el("td", undefined, "video");
-  const meta = el("small", `${video.channel_name} · `);
+  const row = el("li"); row.dataset.id = video.id;
+  const what = el("div", undefined, "what");
+  const meta = el("p", `${video.channel_name} · `, "meta");
   meta.append(video.published_at ? timeNode(video.published_at, dateFormat) : "publication date pending");
-  title.append(el("div", video.title), meta);
-  if (video.error) { const detail = errorDetails(video.error); detail.open = open.has(video.id); title.append(detail); }
-  const updated = el("td", undefined, "nowrap"); updated.append(timeNode(video.updated_at));
-  const actions = el("td", undefined, "row-actions");
+  what.append(el("p", video.title, "title"), meta);
+  if (video.error) { const detail = errorDetails(video.error); detail.open = open.has(video.id); what.append(detail); }
+  const foot = el("div", undefined, "foot");
+  const progress = video.status === "downloading" && Number.isFinite(video.progress);
+  const state = stateNode(video.status, progress ? "Downloading " : undefined);
+  if (progress) state.append(el("b", `${video.progress}%`));
+  const updated = timeNode(video.updated_at); updated.className = "when";
+  foot.append(state, updated);
+  const actions = el("div", undefined, "row-acts");
   const id = encodeURIComponent(video.id);
   if (video.status === "error") actions.append(button("Retry", `/api/videos/${id}/retry`));
   if (video.status === "error" || video.status === "done") {
-    const remove = button("Remove from list", `/api/videos/${id}/remove`);
-    remove.title = video.status === "done" ? "Library files are kept." : "Returns this video to the channel catalog.";
+    const remove = button("", `/api/videos/${id}/remove`, "quiet sq");
+    remove.innerHTML = REMOVE_ICON;
+    remove.setAttribute("aria-label", "Remove from list");
+    remove.title = video.status === "done" ? "Remove from list. Library files are kept." : "Remove from list. The video returns to the channel catalog.";
     actions.append(remove);
   }
-  row.append(status, title, updated, actions);
+  row.append(thumbNode(video), what, foot, actions);
   return row;
+}
+function currentWork(video) {
+  const item = el("div", undefined, "now-item");
+  const body = el("div");
+  const eyebrow = el("p", undefined, "eyebrow");
+  eyebrow.append(stateNode(video.status, ""), video.status === "publishing" ? "Publishing now" : "Downloading now");
+  const meta = el("p", `${video.channel_name}`, "meta");
+  if (video.published_at) meta.append(" · ", timeNode(video.published_at, dateFormat));
+  body.append(eyebrow, el("h2", video.title), meta);
+  if (video.status === "downloading" && Number.isFinite(video.progress)) {
+    const bar = el("progress"); bar.max = 100; bar.value = video.progress;
+    bar.setAttribute("aria-label", `Download progress for ${video.title}`);
+    const foot = el("p", undefined, "now-foot");
+    foot.append(el("b", `${video.progress}%`), el("span", queuedText()));
+    body.append(bar, foot);
+  }
+  item.append(thumbNode(video), body);
+  return item;
+}
+function queuedText() {
+  const queued = counts.queued || 0;
+  return queued ? `${queued} queued behind this` : "Nothing queued behind this";
 }
 async function refreshDownloads(version) {
   const query = filterQuery(); query.set("offset", offset);
@@ -151,47 +202,37 @@ async function refreshDownloads(version) {
   if (!currentResponse.ok) throw new Error("Could not load current work");
   const [data, current] = await Promise.all([response.json(), currentResponse.json()]);
   if (version !== generation) return;
-  const activeWork = current.videos.filter(video => video.status === "downloading" || video.status === "publishing");
-  const activeNode = document.getElementById("active-download");
-  activeNode.replaceChildren(...(activeWork.length ? activeWork.map(video => {
-    const item = el("div");
-    item.append(badge(video.status), el("strong", ` ${video.title}`), el("small", video.channel_name));
-    if (video.status === "downloading" && Number.isFinite(video.progress)) {
-      const bar = el("progress"); bar.max = 100; bar.value = video.progress;
-      bar.setAttribute("aria-label", `Download progress for ${video.title}`);
-      item.append(bar, el("span", `${video.progress}%`));
-    }
-    return item;
-  }) : [el("p", "No downloads currently in progress.", "hint")]));
   showPause(data.paused);
   counts = data.counts;
+  const activeWork = current.videos.filter(video => video.status === "downloading" || video.status === "publishing");
+  document.getElementById("active-download").replaceChildren(...(activeWork.length
+    ? activeWork.map(currentWork) : [el("p", "Nothing is downloading right now.", "hint")]));
   const active = (counts.queued || 0) + (counts.downloading || 0) + (counts.publishing || 0);
   const total = Object.values(counts).reduce((sum, n) => sum + n, 0);
   const shown = {"": total, active, done: counts.done || 0, error: counts.error || 0, queued: counts.queued || 0};
   document.querySelectorAll("[data-count]").forEach(node => { node.textContent = shown[node.dataset.count]; });
+  const summary = [[counts.downloading, "downloading"], [counts.publishing, "publishing"], [counts.queued, "queued"], [counts.error, "failed"]]
+    .filter(([n]) => n).map(([n, label]) => `${n} ${label}`);
+  document.getElementById("summary").textContent = summary.length ? summary.join(", ") : (total ? "Nothing in progress" : "");
   document.querySelectorAll("[data-status]").forEach(node => node.setAttribute("aria-pressed", String(node.dataset.status === filters.status)));
-  document.querySelector('[data-bulk="retry-errors"]').textContent = `Retry failed (${shown.error})`;
-  document.querySelector('[data-bulk="remove-errors"]').textContent = `Remove failed (${shown.error})`;
-  document.querySelector('[data-bulk="remove-done"]').textContent = `Remove done (${shown.done})`;
-  const removeQueued = document.querySelector('[data-bulk="remove-queued"]');
-  if (removeQueued) removeQueued.textContent = `Remove queued (${shown.queued})`;
   document.querySelectorAll("[data-bulk]").forEach(node => {
     const key = node.dataset.bulk === "remove-done" ? "done" : (node.dataset.bulk === "remove-queued" ? "queued" : "error");
+    node.querySelector("span").textContent = shown[key];
     node.disabled = !shown[key];
   });
   const videos = document.getElementById("videos");
   const open = openDetails(videos);
   const rows = data.videos.map(video => videoRow(video, open));
   if (!data.videos.length) {
-    const row = el("tr"); const cell = el("td", undefined, "empty-state"); cell.colSpan = 4;
+    const row = el("li", undefined, "empty"); const cell = row;
     row.dataset.empty = "downloads";
     if (filters.status || filters.channel || filters.q) {
       cell.append("No downloads match these filters. ");
-      const reset = el("button", "Reset filters", "secondary"); reset.type = "button";
+      const reset = el("button", "Reset filters"); reset.type = "button";
       reset.addEventListener("click", () => { filters.status = ""; filters.channel = ""; filters.q = ""; document.getElementById("search").value = ""; document.getElementById("channel-filter").value = ""; applyFilters(); });
       cell.append(reset);
-    } else { cell.append("The download queue is empty. "); const link = el("a", "Add downloads"); link.href = "#urls"; link.addEventListener("click", () => { document.querySelector(".import").open = true; }); cell.append(link); }
-    row.append(cell); rows.push(row);
+    } else { cell.append("The download queue is empty. "); const link = el("a", "Add downloads"); link.href = "#urls"; link.addEventListener("click", () => openImport("video")); cell.append(link); }
+    rows.push(row);
   }
   replaceRows(videos, rows);
   document.getElementById("page").textContent = data.total ? `${offset + 1}–${offset + data.videos.length} of ${data.total}` : "";
@@ -207,22 +248,20 @@ async function refreshJobs() {
   const jobs = document.getElementById("jobs");
   const open = openDetails(jobs);
   replaceRows(jobs, data.jobs.map(job => {
-    const row = el("tr"); row.dataset.id = String(job.id);
+    const row = el("li"); row.dataset.id = String(job.id);
     const payload = JSON.parse(job.payload);
-    const status = el("td"); status.append(badge(job.status));
-    const task = el("td");
-    task.append(el("div", `${JOB_KINDS[job.kind] || job.kind} #${job.id}`), el("small", payload.url || "Saved cookies"));
-    if (job.result) task.append(el("small", resultText(job.result)));
+    const task = el("div", undefined, "what");
+    task.append(el("p", `${JOB_KINDS[job.kind] || job.kind} #${job.id}`, "title"), el("p", payload.url || "Saved cookies", "meta mono"));
+    if (job.result) task.append(el("p", resultText(job.result), "meta"));
     if (job.error) { const detail = errorDetails(job.error); detail.open = open.has(String(job.id)); task.append(detail); }
-    const updated = el("td", undefined, "nowrap"); updated.append(timeNode(job.updated_at));
-    const actions = el("td", undefined, "row-actions");
+    const updated = timeNode(job.updated_at); updated.className = "when";
+    const actions = el("div", undefined, "row-acts");
     if (job.status === "error") actions.append(button("Retry", `/api/jobs/${job.id}/retry`));
-    row.append(status, task, updated, actions);
+    row.append(stateNode(job.status), task, updated, actions);
     return row;
   }));
   if (!data.jobs.length) {
-    const row = el("tr"); const cell = el("td", "No activity on this page.", "hint"); cell.colSpan = 4;
-    row.append(cell); jobs.append(row);
+    jobs.append(el("li", "No activity on this page.", "empty"));
   }
   document.getElementById("jobs-page").textContent = data.jobs.length ? `${jobOffset + 1}–${jobOffset + data.jobs.length}` : "";
   document.getElementById("jobs-previous").disabled = jobOffset === 0;
@@ -237,12 +276,20 @@ async function refreshUpdates() {
   const updates = document.getElementById("updates");
   if (updates.contains(document.activeElement)) return;
   const open = new Set([...updates.querySelectorAll("[data-component]")].filter(node => node.querySelector("details[open]")).map(node => node.dataset.component));
-  updates.replaceChildren(...data.updates.map(item => {
-    const node = el("p", `${item.component}: installed ${item.installed}; latest ${item.latest || "unknown"}; ${item.status}. Last successful check: `, `update ${item.status}`);
-    node.append(item.succeeded_at ? timeNode(item.succeeded_at) : "never", ".");
-    node.dataset.component = item.component;
-    if (item.error) { const detail = errorDetails(item.error); detail.open = open.has(item.component); node.append(detail); } return node;
-  }));
+  const UPDATE = {current: ["ok", "Current"], available: ["warn", "Update available"], unknown: ["wait", "Unknown"]};
+  const table = el("table"), head = el("tr"), body = el("tbody");
+  for (const label of ["Component", "Installed", "Latest", "Status", "Last check"]) head.append(el("th", label));
+  table.append(el("thead"), body); table.tHead.append(head);
+  for (const item of data.updates) {
+    const row = el("tr"); row.dataset.component = item.component;
+    const [tone, label] = UPDATE[item.status] || ["wait", item.status];
+    const state = el("td"); const dot = el("span", undefined, `state ${tone}`); dot.append(el("i"), label); state.append(dot);
+    if (item.error) { const detail = errorDetails(item.error); detail.open = open.has(item.component); state.append(detail); }
+    const checked = el("td", undefined, "mono"); checked.append(item.succeeded_at ? timeNode(item.succeeded_at) : "never");
+    row.append(el("td", item.component), el("td", item.installed, "mono"), el("td", item.latest || "unknown", "mono"), state, checked);
+    body.append(row);
+  }
+  updates.replaceChildren(table);
 }
 
 async function refresh() {
@@ -262,7 +309,7 @@ async function refresh() {
 
 document.querySelectorAll("[data-form]").forEach(form => form.addEventListener("submit", async event => {
   event.preventDefault();
-  const submit = form.querySelector("button"); submit.disabled = true;
+  const submit = form.querySelector('button:not([type="button"])'); submit.disabled = true;
   const target = form.querySelector(".form-feedback");
   if (target) formFeedback(target, "");
   try { const response = await action(form.action, new FormData(form)); window.location.assign(response.url); }
@@ -338,14 +385,23 @@ if (selectAll) {
   updateSelection();
 }
 const kind = document.getElementById("import-kind");
+function openImport(value) {
+  const panel = document.getElementById("import");
+  if (!panel) return;
+  kind.querySelector(`[value="${value}"]`).checked = true;
+  kind.dispatchEvent(new Event("change"));
+  panel.hidden = false;
+  document.getElementById("urls").focus();
+}
 if (kind) {
   const mode = document.getElementById("import-mode");
   const updateImport = () => {
-    const channel = kind.value === "channel";
+    const channel = kind.querySelector(":checked").value === "channel";
     if (channel && mode.value === "video") mode.value = "future";
     if (!channel) mode.value = "video";
     mode.querySelector('[value="video"]').hidden = channel;
-    document.getElementById("import-mode-label").hidden = !channel;
+    mode.hidden = !channel;
+    document.getElementById("import-hint").hidden = !channel;
     document.getElementById("import-subscription").hidden = !channel;
     document.getElementById("import-subscription").querySelector("input").disabled = !channel;
     const latest = document.getElementById("import-latest");
@@ -353,17 +409,26 @@ if (kind) {
     latest.querySelector("input").disabled = latest.hidden;
   };
   kind.addEventListener("change", updateImport); mode.addEventListener("change", updateImport); updateImport();
+  document.querySelectorAll("[data-import-open]").forEach(node => node.addEventListener("click", () => openImport(node.dataset.importOpen)));
+  document.querySelector("[data-import-close]").addEventListener("click", () => { document.getElementById("import").hidden = true; });
 }
+// Close an open menu when clicking elsewhere.
+if (document.querySelectorAll("details.menu").length) document.addEventListener("click", event => {
+  document.querySelectorAll("details.menu[open]").forEach(menu => { if (!menu.contains(event.target)) menu.open = false; });
+});
 const channelSearch = document.getElementById("channel-search");
 if (channelSearch) {
-  const subscription = document.getElementById("channel-subscription"), errors = document.getElementById("channel-errors");
+  const tabs = [...document.querySelectorAll("#channel-subscription [data-value]")], errors = document.getElementById("channel-errors");
+  let subscription = "";
   const cards = [...document.querySelectorAll(".channel-card")];
   const filterChannels = () => {
-    cards.forEach(card => { card.hidden = !card.dataset.name.toLocaleLowerCase().includes(channelSearch.value.trim().toLocaleLowerCase()) || (subscription.value && card.dataset.subscribed !== subscription.value) || (errors.value && card.dataset.errors !== errors.value); });
+    tabs.forEach(tab => tab.setAttribute("aria-pressed", String(tab.dataset.value === subscription)));
+    cards.forEach(card => { card.hidden = !card.dataset.name.toLocaleLowerCase().includes(channelSearch.value.trim().toLocaleLowerCase()) || (subscription && card.dataset.subscribed !== subscription) || (errors.value && card.dataset.errors !== errors.value); });
     document.getElementById("channel-empty").hidden = !cards.length || cards.some(card => !card.hidden);
   };
-  [channelSearch, subscription, errors].forEach(node => node.addEventListener("input", filterChannels));
-  document.getElementById("channel-reset").addEventListener("click", () => { channelSearch.value = subscription.value = errors.value = ""; filterChannels(); });
+  tabs.forEach(tab => tab.addEventListener("click", () => { subscription = tab.dataset.value; filterChannels(); }));
+  [channelSearch, errors].forEach(node => node.addEventListener("input", filterChannels));
+  document.getElementById("channel-reset").addEventListener("click", () => { channelSearch.value = errors.value = subscription = ""; filterChannels(); });
 }
 let applyFilters;
 if (document.getElementById("videos")) {

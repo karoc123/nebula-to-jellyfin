@@ -1,5 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="page-head"><h1>Logs</h1></div><section class="card"><p class="hint">Refreshes automatically. Latest entries appear at the bottom.</p><p id="log-status" class="log-status" role="status">Loading logs…</p><pre id="log"></pre></section>
+<div class="head"><div><h1>Logs</h1><p class="sub"><span id="log-status" class="state wait" role="status"><i></i>Loading logs…</span></p></div></div>
+<pre id="log" tabindex="0"></pre>
+<p class="meta" style="margin-top: 8px">Refreshes automatically. Latest entries appear at the bottom.</p>
 <script src="/static/logs.js" defer></script>
 {% endblock %}

@@ -1,13 +1,11 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="page-head"><h1>Activity</h1>
-<details class="action-menu"><summary>Clear activity</summary><div class="form-actions">
-<button type="button" class="secondary" data-clear="done">Clear finished</button>
-<button type="button" class="secondary" data-clear="error">Clear failed</button></div></details></div>
+<div class="head"><div><h1>Activity</h1>
+<p class="sub">Imports, channel checks and cookie tests. Finished entries are deleted after {{ retention }} days; failed entries stay until retried or cleared.</p></div>
+<details class="menu"><summary>Clear activity</summary><div class="pop">
+<button type="button" data-clear="done">Clear finished</button>
+<button type="button" data-clear="error">Clear failed</button></div></details></div>
 {% if request.query_params.get('queued') %}<p class="notice">Import queued. Follow its progress below or <a href="/">return to Downloads</a>.</p>{% endif %}
-<p class="hint">Imports, channel checks and cookie tests. Finished entries are deleted automatically after {{ retention }} days; failed entries stay until retried or cleared.</p>
-<section class="card">
-<div class="table-scroll"><table class="stack"><thead><tr><th>Status</th><th>Task</th><th>Updated</th><th></th></tr></thead><tbody id="jobs"></tbody></table></div>
-<div class="pager"><button type="button" class="secondary" id="jobs-previous">Previous</button><span id="jobs-page" class="hint"></span><button type="button" class="secondary" id="jobs-next">Next</button></div>
-</section>
+<ul class="rows jobs" id="jobs"></ul>
+<div class="pager"><span id="jobs-page" class="mono"></span><span class="acts"><button type="button" id="jobs-previous">Previous</button><button type="button" id="jobs-next">Next</button></span></div>
 {% endblock %}
