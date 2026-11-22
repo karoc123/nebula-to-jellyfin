@@ -25,7 +25,7 @@ Copy the following into a file named `compose.yaml` in that directory:
 ```yaml
 services:
   nebula-downloader:
-    image: ghcr.io/karoc123/nebula-to-jellyfin:v0.5.0
+    image: ghcr.io/karoc123/nebula-to-jellyfin:v0.5.1
     restart: unless-stopped
     init: true
     ports:
